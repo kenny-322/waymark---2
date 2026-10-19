@@ -208,7 +208,7 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
 
   function update() {
     const zoom = camera.position.z;
-    const countryOpacity = smoothStep(5.15, 6.65, zoom);
+    const countryOpacity = smoothStep(5.55, 6.2, zoom);
     borderMaterial.opacity = countryOpacity * 0.76;
     boundaryGroup.visible = loaded && countryOpacity > 0.015;
 

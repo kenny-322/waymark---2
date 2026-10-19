@@ -2250,9 +2250,12 @@ function updateCityLabels() {
 
   const requiredCityIds = getRequiredCityIds();
   const cameraZ = camera.position.z;
-  const zoomTier = cameraZ >= 5.55 ? 1 : cameraZ >= 4.55 ? 2 : 3;
-  // Cross-fade from countries at far zoom to city markers and names as the user zooms in.
-  const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.45, 6.65);
+  const zoomTier = cameraZ >= 5.75 ? 1 : cameraZ >= 5.05 ? 2 : 3;
+  // Keep country names at distant zoom and city names at medium zoom; avoid
+  // the broad overlap that previously showed both label systems together.
+  const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.25, 5.8);
+  // At very close globe zoom, city labels become visual clutter and disappear.
+  const closeZoomCityFade = THREE.MathUtils.smoothstep(cameraZ, 3.65, 4.25);
   const candidates = [];
 
   for (const entry of cityEntries) {
@@ -2380,15 +2383,16 @@ function updateCityLabels() {
     const visible = Boolean(chosen);
     entry.label.style.left = `${chosen?.x ?? x}px`;
     entry.label.style.top = `${chosen?.y ?? y}px`;
-    entry.label.style.opacity = visible ? String(cityLayerFade) : "0";
-    entry.label.style.pointerEvents = visible && cityLayerFade > 0.22 ? "auto" : "none";
+    const combinedCityFade = cityLayerFade * closeZoomCityFade;
+    entry.label.style.opacity = visible ? String(combinedCityFade) : "0";
+    entry.label.style.pointerEvents = visible && combinedCityFade > 0.22 ? "auto" : "none";
 
-    entry.marker.visible = (visible || candidate.forced) && cityLayerFade > 0.02;
+    entry.marker.visible = (visible || candidate.forced) && combinedCityFade > 0.02;
     if (candidate.forced) {
-      entry.marker.visible = frontFacing && inScreen && cityLayerFade > 0.02;
+      entry.marker.visible = frontFacing && inScreen && combinedCityFade > 0.02;
     }
     if (entry.marker.material instanceof THREE.MeshBasicMaterial) {
-      entry.marker.material.opacity = (candidate.forced ? 0.95 : 0.55) * cityLayerFade;
+      entry.marker.material.opacity = (candidate.forced ? 0.95 : 0.55) * combinedCityFade;
     }
 
     if (chosen) occupy(chosen);

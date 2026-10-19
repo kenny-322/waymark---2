@@ -1,4 +1,4 @@
-/* WAY●MARK city explorer, v1.32.
+/* WAY●MARK city explorer, v1.34.
  * One generic map workflow for every city in CITY_DATA. Street basemaps are
  * vector tiles; named places are loaded on demand from OpenStreetMap Overpass.
  * This module intentionally keeps city routes as ordered stops for now. A real
@@ -209,8 +209,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   }
 
   function setFallbackMessage(message, show = true) {
+    // Keep the map canvas visually clean; report service problems in the compact
+    // status line of the search panel rather than a large floating toast.
     fallbackElement.textContent = message;
-    fallbackElement.classList.toggle("hidden", !show);
+    fallbackElement.classList.add("hidden");
   }
 
   function emptyFeatureCollection() {
@@ -601,6 +603,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
         [city.lon - longitudeDelta, city.lat - latitudeDelta],
         [city.lon + longitudeDelta, city.lat + latitudeDelta]
       ];
+      // Keep the camera within a generous city-sized area so users cannot drift
+      // far away from the city being explored. This is a fallback radius because
+      // the current city catalogue stores centers, not official city boundaries.
+      map.setMaxBounds(bounds);
       const camera = map.cameraForBounds(bounds, {
         padding: { top: 90, right: 38, bottom: 70, left: 38 },
         pitch: 0,
@@ -748,6 +754,14 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     });
   });
   elementById("city-explorer-back").addEventListener("click", close);
+  const searchButton = document.getElementById("city-place-search-button");
+  const routeBuildButton = document.getElementById("city-route-build-button");
+  const searchInput = document.getElementById("city-place-search");
+  if (searchButton) searchButton.addEventListener("click", () => setStatus("Поиск мест будет подключён следующим этапом."));
+  if (routeBuildButton) routeBuildButton.addEventListener("click", () => setStatus("Построение маршрутов будет подключено следующим этапом."));
+  if (searchInput) searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") setStatus("Поиск мест будет подключён следующим этапом.");
+  });
   clearRouteButton.addEventListener("click", clearRoute);
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();

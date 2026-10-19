@@ -150,35 +150,27 @@
         <button type="button" class="city-view-button" data-map-view="3d" aria-pressed="false">3D</button>
       </div>
 
-      <section class="city-explorer-filters glass-panel" aria-label="Фильтры мест на карте">
-        <div class="city-explorer-filter-caption">Показывать на карте</div>
-        <div class="city-explorer-filter-buttons">
-          <button class="city-filter-button active" type="button" data-place-filter="all">Все</button>
-          <button class="city-filter-button" type="button" data-place-filter="attraction">Места</button>
-          <button class="city-filter-button" type="button" data-place-filter="food">Еда</button>
-          <button class="city-filter-button" type="button" data-place-filter="park">Парки</button>
-          <button class="city-filter-button" type="button" data-place-filter="hotel">Отели</button>
-          <button class="city-filter-button" type="button" data-place-filter="transport">Транспорт</button>
+      <section class="city-explorer-search glass-panel" aria-label="Поиск и построение маршрута">
+        <label class="city-search-label" for="city-place-search">Поиск по городу</label>
+        <div class="city-search-row">
+          <span class="city-search-icon" aria-hidden="true">⌕</span>
+          <input id="city-place-search" type="search" placeholder="Места, адреса и организации" autocomplete="off" />
+          <button id="city-place-search-button" type="button" aria-label="Найти" title="Поиск будет подключён позже">Найти</button>
         </div>
-        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Подготавливаем карту…</div>
+        <div class="city-search-divider"></div>
+        <div class="city-search-label">Построить маршрут</div>
+        <label class="city-route-field"><span aria-hidden="true">●</span><input id="city-route-from" type="text" placeholder="Откуда" autocomplete="off" /></label>
+        <label class="city-route-field destination"><span aria-hidden="true">◆</span><input id="city-route-to" type="text" placeholder="Куда" autocomplete="off" /></label>
+        <button id="city-route-build-button" class="city-route-build-button" type="button" title="Построение маршрута будет подключено позже">Построить маршрут</button>
+        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Поиск и маршруты скоро появятся</div>
       </section>
 
-      <aside class="city-explorer-route glass-panel" aria-label="Маршрут по городу">
-        <div class="city-explorer-route-head">
-          <div>
-            <div class="city-explorer-kicker">ВАШ ПЛАН</div>
-            <h3>Маршрут по городу</h3>
-          </div>
-          <span id="city-explorer-stop-count" class="city-explorer-stop-count">0</span>
-        </div>
-        <p class="city-explorer-route-hint">Нажимайте на точки на карте, чтобы добавить места и задать порядок посещения.</p>
-        <ol id="city-explorer-route-stops" class="city-explorer-route-stops"></ol>
-        <div id="city-explorer-route-empty" class="city-explorer-route-empty">Пока нет выбранных мест.</div>
-        <div class="city-explorer-route-note">Сейчас показывается схема порядка остановок. Маршруты по улицам и выбор транспорта подключим следующим этапом.</div>
-        <button id="city-explorer-clear-route" class="city-explorer-clear-route" type="button" disabled>Очистить маршрут</button>
+      <aside class="city-explorer-route city-explorer-route-state" aria-hidden="true">
+        <span id="city-explorer-stop-count">0</span>
+        <ol id="city-explorer-route-stops"></ol>
+        <div id="city-explorer-route-empty"></div>
+        <button id="city-explorer-clear-route" type="button" disabled>Очистить маршрут</button>
       </aside>
-
-      <div class="city-explorer-attribution-note">Места: © OpenStreetMap contributors</div>
       <div id="city-explorer-fallback" class="city-explorer-fallback hidden" role="status"></div>
     </section>
   </main>
