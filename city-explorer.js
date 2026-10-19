@@ -15,7 +15,7 @@ const OVERPASS_ENDPOINTS = [
 ];
 const MAX_DISPLAYED_PLACES = 150;
 const DEFAULT_RADIUS_METERS = 7000;
-const CITY_OVERVIEW_RADIUS_METERS = 18000;
+const CITY_OVERVIEW_RADIUS_METERS = 25000;
 const BUILDING_EXTRUSION_LAYER_ID = "waymark-3d-buildings";
 
 const FILTER_DEFINITIONS = {
@@ -353,29 +353,32 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (activePopup) activePopup.remove();
     activePopup = null;
     placeDetailsTitle.textContent = place.name || "Место на карте";
-    placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Объект карты";
-    placeDetailsDescription.textContent = place.description || extra.description || "Подробное описание для этого объекта пока недоступно.";
+    placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Место";
+    placeDetailsDescription.textContent = place.description || extra.description || descriptionForPlace(place.category, place.name);
     placeDetailsMeta.replaceChildren();
-    const details = [];
-    if (place.address) details.push(["Адрес", place.address]);
-    if (Number.isFinite(place.lat) && Number.isFinite(place.lon)) {
-      details.push(["Координаты", `${place.lat.toFixed(5)}, ${place.lon.toFixed(5)}`]);
-    }
-    if (extra.height) details.push(["Высота", extra.height]);
-    if (place.sourceName) details.push(["Источник", place.sourceName]);
-    for (const [label, value] of details.slice(0, 3)) {
+    if (place.address) {
       const row = document.createElement("div");
-      row.className = "city-place-details-row";
-      const key = document.createElement("span");
-      key.textContent = label;
+      row.className = "city-place-details-row place-address";
       const val = document.createElement("strong");
-      val.textContent = value;
-      row.append(key, val);
+      val.textContent = place.address;
+      row.appendChild(val);
       placeDetailsMeta.appendChild(row);
     }
     placeDetailsPanel.classList.remove("hidden");
     placeDetailsPanel.classList.add("visible");
     placeDetailsRouteButton.dataset.placeName = place.name || "";
+  }
+
+  function descriptionForPlace(category, name = "") {
+    const normalized = String(category || "").toLowerCase();
+    if (/restaurant|cafe|food/.test(normalized)) return "Заведение, где можно поесть или выпить кофе. Часы работы и услуги зависят от конкретного места.";
+    if (/hotel|lodging/.test(normalized)) return "Место размещения для путешественников. Доступные услуги и условия проживания уточняются у объекта.";
+    if (/park|garden/.test(normalized)) return "Общественная зелёная зона для прогулок и отдыха.";
+    if (/museum/.test(normalized)) return "Культурное учреждение с экспозициями и выставками.";
+    if (/attraction|viewpoint|historic|monument/.test(normalized)) return "Достопримечательность или интересный объект города.";
+    if (/transport|station/.test(normalized)) return "Транспортный объект, связанный с передвижением по городу.";
+    if (/building|other/.test(normalized)) return "Объект городской застройки.";
+    return name ? `Объект «${name}» на карте города.` : "Место на карте города.";
   }
 
   function hidePlaceDetails() {
@@ -394,35 +397,44 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   function handleVectorFeatureClick(event) {
     if (!map || !mapReady || !event?.point) return;
     const features = map.queryRenderedFeatures(event.point) || [];
-    if (!features.length) return;
-    const buildingFeature = features.find((feature) => {
-      const layer = map.getLayer(feature.layer?.id);
-      return feature.layer?.id === BUILDING_EXTRUSION_LAYER_ID ||
-        /building/i.test(String(feature.sourceLayer || layer?.["source-layer"] || "")) ||
-        /building/i.test(String(feature.layer?.id || ""));
+    if (!features.length) return; // Clicking empty map space must not create a place card.
+
+    // Prefer a named/meaningful point or area. An anonymous building footprint is
+    // deliberately ignored instead of being presented as "Building on map".
+    const feature = features.find((item) => {
+      const props = item.properties || {};
+      const layer = map.getLayer(item.layer?.id);
+      const sourceLayer = String(item.sourceLayer || layer?.["source-layer"] || "");
+      const isBuilding = /building/i.test(sourceLayer) || /building/i.test(String(item.layer?.id || "")) || item.layer?.id === BUILDING_EXTRUSION_LAYER_ID;
+      const name = featureDisplayName(props);
+      if (isBuilding && !name) return false;
+      const meaningful = name || props.amenity || props.shop || props.tourism || props.leisure || props.historic || props.office || props.public_transport || props.railway || props.highway === "bus_stop";
+      return Boolean(meaningful);
     });
-    const namedFeature = features.find((feature) => featureDisplayName(feature.properties) &&
-      feature.layer?.id !== BUILDING_EXTRUSION_LAYER_ID &&
-      !/building/i.test(String(feature.sourceLayer || map.getLayer(feature.layer?.id)?.["source-layer"] || "")));
-    const feature = namedFeature || buildingFeature || features.find((item) => featureDisplayName(item.properties));
     if (!feature) return;
+
     const props = feature.properties || {};
     const layer = map.getLayer(feature.layer?.id);
     const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
-    const isBuilding = Boolean(buildingFeature);
-    const name = featureDisplayName(props) || (isBuilding ? "Здание на карте" : "Объект карты");
-    const heightValue = Number(props.render_height ?? props.height);
+    const isBuilding = /building/i.test(sourceLayer) || /building/i.test(String(feature.layer?.id || "")) || feature.layer?.id === BUILDING_EXTRUSION_LAYER_ID;
+    const name = featureDisplayName(props);
+    if (!name) return;
+
+    const street = props["addr:street"] || props.street || "";
+    const houseNumber = props["addr:housenumber"] || "";
+    const cityName = activeCity?.name || activeCity?.name_en || "";
+    const addressParts = [houseNumber && street ? `${street} ${houseNumber}` : street, props["addr:suburb"] || props["addr:district"] || "", cityName].filter(Boolean);
+    const category = isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer);
     const place = {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
       name,
-      category: isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer),
-      description: String(props.description || props["description:ru"] || "").trim(),
-      address: [props["addr:street"], props["addr:housenumber"]].filter(Boolean).join(", "),
+      category,
+      description: String(props["description:ru"] || props.description || props["description:en"] || "").trim() || descriptionForPlace(category, name),
+      address: addressParts.join(", "),
       lat: event.lngLat.lat,
-      lon: event.lngLat.lng,
-      sourceName: "Векторная карта"
+      lon: event.lngLat.lng
     };
-    showPlaceDetails(place, { height: Number.isFinite(heightValue) && heightValue > 0 ? `${Math.round(heightValue)} м` : "", categoryLabel: isBuilding ? "Здание" : (props.class || props.type || "Объект карты") });
+    showPlaceDetails(place, { categoryLabel: isBuilding ? "Здание" : (props.class || props.type || CATEGORY_META[category]?.label || "Место") });
   }
 
   function categoryFromVectorProperties(properties = {}, sourceLayer = "") {
