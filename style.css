@@ -2301,8 +2301,8 @@ html[data-device="mobile"] .toast {
   z-index: 3;
   top: 112px;
   left: 16px;
-  width: min(330px, calc(100vw - 32px));
-  padding: 13px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 11px;
   border: 1px solid rgba(255,255,255,.88);
   border-radius: 16px;
   background: rgba(255,255,255,.92);
@@ -2338,12 +2338,12 @@ html[data-device="mobile"] .toast {
 .city-explorer-header {
   top: max(16px, env(safe-area-inset-top));
   left: 16px;
-  width: min(355px, calc(100vw - 32px));
+  width: min(330px, calc(100vw - 32px));
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 13px 15px;
-  border-radius: 18px;
+  padding: 10px 12px;
+  border-radius: 16px;
 }
 
 .city-explorer-back {
@@ -2840,8 +2840,8 @@ html[data-device="mobile"] .toast {
   .city-explorer-search {
     top: calc(max(8px, env(safe-area-inset-top)) + 68px);
     left: 9px;
-    width: min(330px, calc(100vw - 18px));
-    padding: 10px;
+    width: min(300px, calc(100vw - 18px));
+    padding: 9px;
   }
 
   .city-explorer-filters {

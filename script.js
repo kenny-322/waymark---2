@@ -2255,7 +2255,9 @@ function updateCityLabels() {
   // the broad overlap that previously showed both label systems together.
   const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.25, 5.8);
   // At very close globe zoom, city labels become visual clutter and disappear.
-  const closeZoomCityFade = THREE.MathUtils.smoothstep(cameraZ, 3.65, 4.25);
+  // Globe city labels remain available even at maximum globe zoom. The close-zoom
+  // label fade belongs to the city-map view, not to this globe overlay.
+  const closeZoomCityFade = 1;
   const candidates = [];
 
   for (const entry of cityEntries) {
@@ -2760,8 +2762,9 @@ function showSearchResults(query) {
       const city = findCity(button.dataset.cityId);
       if (!city) return;
 
-      if (isMobileUiActive()) focusCityOnGlobeMobile(city);
-      else focusCityOnGlobe(city);
+      // Use the stable Euler-based focus animation on every screen size. The old
+      // desktop quaternion path could rotate the globe around an unexpected axis.
+      focusCityOnGlobeMobile(city);
       showCityCard(city);
 
       searchInput.value = "";
