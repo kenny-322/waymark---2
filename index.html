@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f9fc" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <script>
+    // Determine the initial interface before styles are rendered.
+    // Narrow windows and touch-first devices use the mobile UI layer.
+    (() => {
+      const mobileQuery = window.matchMedia("(max-width: 760px), (hover: none) and (pointer: coarse)");
+      const updateDeviceMode = () => {
+        document.documentElement.dataset.device = mobileQuery.matches ? "mobile" : "desktop";
+      };
+      updateDeviceMode();
+      if (mobileQuery.addEventListener) mobileQuery.addEventListener("change", updateDeviceMode);
+      else if (mobileQuery.addListener) mobileQuery.addListener(updateDeviceMode);
+      window.addEventListener("resize", updateDeviceMode, { passive: true });
+      window.addEventListener("orientationchange", updateDeviceMode, { passive: true });
+    })();
+  </script>
+  <title>WAY●MARK — Explore your way</title>
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://threejs.org" />
+
+  <link rel="stylesheet" href="./style.css" />
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="startup-loader" class="startup-loader" role="status" aria-live="polite" aria-label="Загрузка WAYMARK">
+    <div class="startup-loader-content">
+      <div class="startup-wordmark" aria-label="WAYMARK">
+        <span class="startup-word-way">WAY</span><span class="startup-word-dot">●</span><span class="startup-word-mark">MARK</span>
+      </div>
+      <div class="startup-globe" aria-hidden="true"><span class="startup-globe-orbit"></span><span class="startup-globe-dot"></span></div>
+      <div class="startup-loader-label">Загрузка мира…</div>
+      <div class="startup-loader-track" aria-hidden="true"><span></span></div>
+    </div>
+  </div>
+
+  <main id="app">
+    <canvas id="globe-canvas" aria-label="Интерактивный глобус Waymark"></canvas>
+    <div id="city-labels" aria-hidden="true"></div>
+    <div id="country-labels" aria-hidden="true"></div>
+
+    <div class="ui-layer">
+      <header class="topbar glass-panel">
+        <button class="brand-button" id="brandButton" type="button" aria-label="Вернуться к карте">
+          <span class="brand-way">WAY</span><span class="brand-mark">●</span><span class="brand-mark-word">MARK</span>
+        </button>
+
+        <button class="mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="main-nav">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+
+        <nav class="main-nav" id="main-nav" aria-label="Основная навигация">
+          <button class="nav-button active" data-view="map" type="button">Карта</button>
+          <button class="nav-button" data-view="trips" type="button">Моё путешествие</button>
+          <button class="nav-button" id="surprise-button" type="button">Удиви меня</button>
+        </nav>
+
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="M16 16L21 21"></path>
+          </svg>
+          <input
+            id="city-search"
+            type="search"
+            autocomplete="off"
+            placeholder="Поиск города"
+            aria-label="Поиск города"
+          />
+          <div id="search-results" class="search-results glass-panel hidden"></div>
+        </div>
+      </header>
+
+      <aside id="city-card" class="city-card glass-panel hidden" aria-live="polite"></aside>
+
+
+      <section id="transport-panel" class="transport-panel glass-panel hidden" aria-label="Выбор транспорта">
+        <div class="transport-header">
+          <div>
+            <div class="transport-kicker">Маршрут</div>
+            <div id="transport-route-title" class="transport-route-title">— → —</div>
+          </div>
+          <div id="transport-distance" class="transport-distance"></div>
+        </div>
+        <div id="transport-options" class="transport-options"></div>
+      </section>
+
+      <section id="bottom-panel" class="bottom-panel glass-panel" aria-live="polite">
+        <div id="bottom-panel-content" class="bottom-panel-content">
+          <span class="bottom-panel-icon">📍</span>
+          <span id="bottom-panel-text">Выберите место отправления</span>
+        </div>
+      </section>
+
+      <div id="modal-backdrop" class="modal-backdrop hidden">
+        <section id="app-modal" class="app-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <div class="modal-header">
+            <div class="modal-header-main">
+              <button id="modal-back" class="modal-back-button hidden" type="button" aria-label="Назад к путешествию">←</button>
+              <div>
+                <div class="eyebrow" id="modal-eyebrow">WAY●MARK</div>
+                <h2 id="modal-title">Подробности</h2>
+              </div>
+            </div>
+            <button id="modal-close" class="icon-button" type="button" aria-label="Закрыть">×</button>
+          </div>
+          <div id="modal-content" class="modal-content"></div>
+        </section>
+      </div>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+      <div class="edge-hint edge-hint-left">‹</div>
+      <div class="edge-hint edge-hint-right">›</div>
+
+      
+    </div>
+
+    <section id="city-explorer" class="city-explorer hidden" aria-label="Исследование города">
+      <div id="city-explorer-map" class="city-explorer-map" aria-label="Векторная карта города"></div>
+
+      <header class="city-explorer-header glass-panel">
+        <button id="city-explorer-back" class="city-explorer-back" type="button" aria-label="Вернуться к глобусу">
+          <span aria-hidden="true">←</span><span>Глобус</span>
+        </button>
+        <div class="city-explorer-heading">
+          <div class="city-explorer-kicker">РЕЖИМ ИССЛЕДОВАНИЯ</div>
+          <h2 id="city-explorer-title">Город</h2>
+          <div id="city-explorer-subtitle" class="city-explorer-subtitle">Выберите места на карте</div>
+        </div>
+      </header>
+
+      <div class="city-explorer-view-toggle glass-panel" role="group" aria-label="Режим отображения карты">
+        <button type="button" class="city-view-button active" data-map-view="2d" aria-pressed="true">2D</button>
+        <button type="button" class="city-view-button" data-map-view="3d" aria-pressed="false">3D</button>
+      </div>
+
+      <section class="city-explorer-filters glass-panel" aria-label="Фильтры мест на карте">
+        <div class="city-explorer-filter-caption">Показывать на карте</div>
+        <div class="city-explorer-filter-buttons">
+          <button class="city-filter-button active" type="button" data-place-filter="all">Все</button>
+          <button class="city-filter-button" type="button" data-place-filter="attraction">Места</button>
+          <button class="city-filter-button" type="button" data-place-filter="food">Еда</button>
+          <button class="city-filter-button" type="button" data-place-filter="park">Парки</button>
+          <button class="city-filter-button" type="button" data-place-filter="hotel">Отели</button>
+          <button class="city-filter-button" type="button" data-place-filter="transport">Транспорт</button>
+        </div>
+        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Подготавливаем карту…</div>
+      </section>
+
+      <aside class="city-explorer-route glass-panel" aria-label="Маршрут по городу">
+        <div class="city-explorer-route-head">
+          <div>
+            <div class="city-explorer-kicker">ВАШ ПЛАН</div>
+            <h3>Маршрут по городу</h3>
+          </div>
+          <span id="city-explorer-stop-count" class="city-explorer-stop-count">0</span>
+        </div>
+        <p class="city-explorer-route-hint">Нажимайте на точки на карте, чтобы добавить места и задать порядок посещения.</p>
+        <ol id="city-explorer-route-stops" class="city-explorer-route-stops"></ol>
+        <div id="city-explorer-route-empty" class="city-explorer-route-empty">Пока нет выбранных мест.</div>
+        <div class="city-explorer-route-note">Сейчас показывается схема порядка остановок. Маршруты по улицам и выбор транспорта подключим следующим этапом.</div>
+        <button id="city-explorer-clear-route" class="city-explorer-clear-route" type="button" disabled>Очистить маршрут</button>
+      </aside>
+
+      <div class="city-explorer-attribution-note">Места: © OpenStreetMap contributors</div>
+      <div id="city-explorer-fallback" class="city-explorer-fallback hidden" role="status"></div>
+    </section>
+  </main>
+
+  <script type="module" src="./script.js"></script>
+</body>
+</html>

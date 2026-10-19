@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waymark.invalid/schemas/city-index.schema.json",
+  "title": "WAY●MARK City Index",
+  "description": "Целевой компактный формат города для поиска, глобуса и перехода к профилю. Не заменяет текущий CITY_DATA до миграции.",
+  "type": "object",
+  "required": ["schemaVersion", "cities"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cityIndexEntry" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "cityIndexEntry": {
+      "type": "object",
+      "required": ["id", "name", "countryCode", "countryName", "flag", "coordinates", "importance", "profilePath"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "Глобально уникальный и стабильный ID. ID существующих городов нельзя менять без миграции."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "countryCode": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "ISO 3166-1 alpha-2 code, когда он применим к выбранной территории."
+        },
+        "countryName": { "type": "string", "minLength": 1 },
+        "flag": { "type": "string", "minLength": 1 },
+        "coordinates": { "$ref": "#/$defs/coordinates" },
+        "importance": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "profilePath": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "coordinates": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      },
+      "additionalProperties": false
+    }
+  }
+}
