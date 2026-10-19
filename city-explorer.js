@@ -187,6 +187,13 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   const routeEmptyElement = elementById("city-explorer-route-empty");
   const routeCountElement = elementById("city-explorer-stop-count");
   const clearRouteButton = elementById("city-explorer-clear-route");
+  const placeDetailsPanel = elementById("city-place-details");
+  const placeDetailsTitle = elementById("city-place-details-title");
+  const placeDetailsCategory = elementById("city-place-details-category");
+  const placeDetailsDescription = elementById("city-place-details-description");
+  const placeDetailsMeta = elementById("city-place-details-meta");
+  const placeDetailsRouteButton = elementById("city-place-details-route");
+  const placeDetailsCloseButton = elementById("city-place-details-close");
 
   let map = null;
   let mapLibrary = null;
@@ -340,6 +347,95 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     }
   }
 
+  function showPlaceDetails(place, extra = {}) {
+    // This iteration is intentionally desktop-only; leave the existing mobile UI untouched.
+    if (!place || document.documentElement.dataset.device !== "desktop") return;
+    if (activePopup) activePopup.remove();
+    activePopup = null;
+    placeDetailsTitle.textContent = place.name || "Место на карте";
+    placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Объект карты";
+    placeDetailsDescription.textContent = place.description || extra.description || "Подробное описание для этого объекта пока недоступно.";
+    placeDetailsMeta.replaceChildren();
+    const details = [];
+    if (place.address) details.push(["Адрес", place.address]);
+    if (Number.isFinite(place.lat) && Number.isFinite(place.lon)) {
+      details.push(["Координаты", `${place.lat.toFixed(5)}, ${place.lon.toFixed(5)}`]);
+    }
+    if (extra.height) details.push(["Высота", extra.height]);
+    if (place.sourceName) details.push(["Источник", place.sourceName]);
+    for (const [label, value] of details.slice(0, 3)) {
+      const row = document.createElement("div");
+      row.className = "city-place-details-row";
+      const key = document.createElement("span");
+      key.textContent = label;
+      const val = document.createElement("strong");
+      val.textContent = value;
+      row.append(key, val);
+      placeDetailsMeta.appendChild(row);
+    }
+    placeDetailsPanel.classList.remove("hidden");
+    placeDetailsPanel.classList.add("visible");
+    placeDetailsRouteButton.dataset.placeName = place.name || "";
+  }
+
+  function hidePlaceDetails() {
+    placeDetailsPanel.classList.add("hidden");
+    placeDetailsPanel.classList.remove("visible");
+  }
+
+  function featureDisplayName(properties = {}) {
+    const candidates = [properties["name:ru"], properties.name, properties["name:en"], properties.name_en, properties.ref];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    }
+    return "";
+  }
+
+  function handleVectorFeatureClick(event) {
+    if (!map || !mapReady || !event?.point) return;
+    const features = map.queryRenderedFeatures(event.point) || [];
+    if (!features.length) return;
+    const buildingFeature = features.find((feature) => {
+      const layer = map.getLayer(feature.layer?.id);
+      return feature.layer?.id === BUILDING_EXTRUSION_LAYER_ID ||
+        /building/i.test(String(feature.sourceLayer || layer?.["source-layer"] || "")) ||
+        /building/i.test(String(feature.layer?.id || ""));
+    });
+    const namedFeature = features.find((feature) => featureDisplayName(feature.properties) &&
+      feature.layer?.id !== BUILDING_EXTRUSION_LAYER_ID &&
+      !/building/i.test(String(feature.sourceLayer || map.getLayer(feature.layer?.id)?.["source-layer"] || "")));
+    const feature = namedFeature || buildingFeature || features.find((item) => featureDisplayName(item.properties));
+    if (!feature) return;
+    const props = feature.properties || {};
+    const layer = map.getLayer(feature.layer?.id);
+    const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
+    const isBuilding = Boolean(buildingFeature);
+    const name = featureDisplayName(props) || (isBuilding ? "Здание на карте" : "Объект карты");
+    const heightValue = Number(props.render_height ?? props.height);
+    const place = {
+      id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
+      name,
+      category: isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer),
+      description: String(props.description || props["description:ru"] || "").trim(),
+      address: [props["addr:street"], props["addr:housenumber"]].filter(Boolean).join(", "),
+      lat: event.lngLat.lat,
+      lon: event.lngLat.lng,
+      sourceName: "Векторная карта"
+    };
+    showPlaceDetails(place, { height: Number.isFinite(heightValue) && heightValue > 0 ? `${Math.round(heightValue)} м` : "", categoryLabel: isBuilding ? "Здание" : (props.class || props.type || "Объект карты") });
+  }
+
+  function categoryFromVectorProperties(properties = {}, sourceLayer = "") {
+    const value = String(properties.class || properties.type || properties.subclass || sourceLayer).toLowerCase();
+    if (/restaurant|cafe|food|fast_food/.test(value)) return "restaurant";
+    if (/hotel|lodging/.test(value)) return "hotel";
+    if (/park|garden|green/.test(value)) return "park";
+    if (/museum|gallery/.test(value)) return "museum";
+    if (/attraction|historic|tourism|monument/.test(value)) return "attraction";
+    if (/station|transport|railway/.test(value)) return "transport";
+    return "other";
+  }
+
   function popupForPlace(place) {
     const content = document.createElement("div");
     content.className = "city-place-popup";
@@ -396,13 +492,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
 
       element.addEventListener("click", (event) => {
         event.stopPropagation();
-        if (activePopup) activePopup.remove();
-        const popupContent = popupForPlace(place);
-        markerEntry.popupElement = popupContent;
-        activePopup = new mapLibrary.Popup({ closeButton: true, closeOnClick: false, offset: 24, maxWidth: "280px" })
-          .setLngLat([place.lon, place.lat])
-          .setDOMContent(popupContent)
-          .addTo(map);
+        showPlaceDetails(place);
       });
     }
     applyPlaceFilter();
@@ -675,6 +765,19 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
           setStatus("Загрузка векторной карты продолжается…");
         }
       });
+      // Clickable vector features (including building footprints/extrusions) work in both 2D and 3D.
+      map.on("click", handleVectorFeatureClick);
+      map.on("mousemove", (event) => {
+        if (!mapReady) return;
+        const features = map.queryRenderedFeatures(event.point) || [];
+        const clickable = features.some((feature) => {
+          const layer = map.getLayer(feature.layer?.id);
+          const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
+          return feature.layer?.id === BUILDING_EXTRUSION_LAYER_ID || /building/i.test(sourceLayer) ||
+            /building/i.test(String(feature.layer?.id || "")) || Boolean(featureDisplayName(feature.properties));
+        });
+        map.getCanvas().style.cursor = clickable ? "pointer" : "";
+      });
       window.setTimeout(() => {
         if (isOpen && !mapReady) {
           setStatus("Не удалось загрузить векторную карту.");
@@ -695,6 +798,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       return;
     }
     activeCity = city;
+    hidePlaceDetails();
     isOpen = true;
     requestSequence += 1;
     currentFilter = "all";
@@ -733,6 +837,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   }
 
   function close() {
+    hidePlaceDetails();
     isOpen = false;
     requestSequence += 1;
     root.classList.add("hidden");
@@ -763,6 +868,11 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (event.key === "Enter") setStatus("Поиск мест будет подключён следующим этапом.");
   });
   clearRouteButton.addEventListener("click", clearRoute);
+  placeDetailsCloseButton.addEventListener("click", hidePlaceDetails);
+  placeDetailsRouteButton.addEventListener("click", () => {
+    // The button is intentionally present but route integration is a later step.
+    setStatus("Построение маршрута для выбранного места подключим следующим этапом.");
+  });
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();
   });

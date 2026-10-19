@@ -2472,7 +2472,7 @@ function openCityDetailsModal(city) {
     <div class="modal-section" style="margin-top: 14px;">
       <h3>Популярные достопримечательности</h3>
       <div class="attraction-list">
-        ${city.attractions.map(([name, note]) => `
+        ${city.attractions.slice(0, 3).map(([name, note]) => `
           <article class="attraction">
             <div class="attraction-name">${name}</div>
             <div class="attraction-note">${note}</div>
