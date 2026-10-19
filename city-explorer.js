@@ -369,16 +369,102 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     placeDetailsRouteButton.dataset.placeName = place.name || "";
   }
 
-  function descriptionForPlace(category, name = "") {
+  function descriptionForPlace(category, name = "", properties = {}) {
+    const props = properties || {};
     const normalized = String(category || "").toLowerCase();
-    if (/restaurant|cafe|food/.test(normalized)) return "Заведение, где можно поесть или выпить кофе. Часы работы и услуги зависят от конкретного места.";
-    if (/hotel|lodging/.test(normalized)) return "Место размещения для путешественников. Доступные услуги и условия проживания уточняются у объекта.";
-    if (/park|garden/.test(normalized)) return "Общественная зелёная зона для прогулок и отдыха.";
-    if (/museum/.test(normalized)) return "Культурное учреждение с экспозициями и выставками.";
-    if (/attraction|viewpoint|historic|monument/.test(normalized)) return "Достопримечательность или интересный объект города.";
-    if (/transport|station/.test(normalized)) return "Транспортный объект, связанный с передвижением по городу.";
-    if (/building|other/.test(normalized)) return "Объект городской застройки.";
-    return name ? `Объект «${name}» на карте города.` : "Место на карте города.";
+    const tag = (...keys) => keys.map((key) => props[key]).find((value) => typeof value === "string" && value.trim())?.trim().toLowerCase() || "";
+    const amenity = tag("amenity");
+    const shop = tag("shop");
+    const office = tag("office");
+    const tourism = tag("tourism");
+    const leisure = tag("leisure");
+    const healthcare = tag("healthcare");
+    const craft = tag("craft");
+    const building = tag("building");
+    const typeLabels = {
+      parcel_locker: "Постамат для самостоятельного получения и отправки посылок.",
+      post_office: "Почтовое отделение: сюда можно прийти для отправки и получения почты и посылок.",
+      marketplace: "Пункт выдачи заказов: здесь обычно получают и оформляют возврат интернет-заказов.",
+      convenience: "Небольшой магазин товаров повседневного спроса.",
+      supermarket: "Продуктовый супермаркет для покупки еды и товаров первой необходимости.",
+      bakery: "Пекарня с хлебом, выпечкой и другими изделиями; ассортимент зависит от заведения.",
+      pharmacy: "Аптека, где продают лекарства и товары для здоровья.",
+      bank: "Банковское отделение или банковская точка обслуживания.",
+      atm: "Банкомат для снятия наличных и других банковских операций.",
+      fuel: "Автозаправочная станция для заправки транспорта.",
+      car_repair: "Автомастерская для обслуживания и ремонта автомобилей.",
+      doctors: "Медицинский кабинет или врачебная практика для приёма пациентов.",
+      clinic: "Медицинская клиника, где оказывают диагностические или лечебные услуги.",
+      hospital: "Больница, оказывающая медицинскую помощь пациентам.",
+      dentist: "Стоматологический кабинет или клиника.",
+      school: "Учебное заведение для обучения детей или подростков.",
+      kindergarten: "Детский сад для присмотра и дошкольного образования.",
+      library: "Библиотека, где можно пользоваться книжным фондом и другими информационными материалами.",
+      police: "Подразделение полиции или пункт правоохранительной службы.",
+      townhall: "Административное учреждение местного самоуправления.",
+      community_centre: "Общественный центр для встреч, мероприятий и занятий.",
+      restaurant: "Ресторан, где можно заказать приготовленные блюда; меню и режим работы зависят от заведения.",
+      cafe: "Кафе для кофе, напитков и лёгкой еды; конкретное меню зависит от заведения.",
+      fast_food: "Заведение быстрого питания, где можно заказать готовую еду.",
+      bar: "Бар, специализирующийся на напитках; наличие еды и режим работы зависят от места.",
+      hotel: "Гостиница или отель для временного проживания.",
+      guest_house: "Гостевой дом для кратковременного проживания.",
+      museum: "Музей с экспозициями и материалами по своей тематике.",
+      attraction: "Достопримечательность или объект, который может быть интересен посетителям города.",
+      viewpoint: "Смотровая площадка или место с видом на окружающую местность.",
+      park: "Парк или зелёная общественная территория для прогулок и отдыха.",
+      playground: "Детская игровая площадка.",
+      sports_centre: "Спортивный центр для тренировок и занятий физической активностью.",
+      fitness_centre: "Фитнес-клуб или тренажёрный зал.",
+      bus_stop: "Остановка общественного транспорта.",
+      bus_station: "Автобусная станция или автовокзал для посадки и высадки пассажиров.",
+      railway_station: "Железнодорожная станция для посадки и высадки пассажиров.",
+      subway_entrance: "Вход на станцию метро.",
+      parking: "Парковка для временной стоянки автомобилей.",
+      toilets: "Общественный туалет.",
+      marketplace: "Торговая точка или пункт обслуживания покупателей."
+    };
+    if (shop && typeLabels[shop]) return typeLabels[shop];
+    if (amenity && typeLabels[amenity]) return typeLabels[amenity];
+    if (office) return office === "government" ? "Государственное или муниципальное учреждение." : office === "company" ? "Офис компании или организации." : "Офис или место оказания профессиональных услуг.";
+    if (healthcare) return healthcare === "pharmacy" ? typeLabels.pharmacy : "Медицинское учреждение или специалист, оказывающий услуги в сфере здравоохранения.";
+    if (craft) return "Мастерская или небольшое предприятие, выполняющее специализированные работы.";
+    if (tourism && typeLabels[tourism]) return typeLabels[tourism];
+    if (leisure === "park" || leisure === "garden") return typeLabels.park;
+    if (leisure === "playground") return typeLabels.playground;
+    if (leisure && /sports_centre|fitness_centre|pitch|stadium/.test(leisure)) return typeLabels.sports_centre;
+    if (/restaurant|cafe|food/.test(normalized)) return "Заведение, где можно поесть или выпить кофе. Конкретное меню и услуги зависят от места.";
+    if (/hotel|lodging/.test(normalized)) return typeLabels.hotel;
+    if (/park|garden/.test(normalized)) return typeLabels.park;
+    if (/museum/.test(normalized)) return typeLabels.museum;
+    if (/attraction|viewpoint|historic|monument/.test(normalized)) return typeLabels.attraction;
+    if (/transport|station/.test(normalized)) return "Транспортный объект, связанный с посадкой пассажиров или передвижением по городу.";
+    if (building && building !== "yes") return `Здание типа «${building.replaceAll("_", " ") }». Точное назначение не указано в картографических данных.`;
+    return name ? `Объект «${name}». В доступных картографических данных нет достаточно сведений, чтобы надёжно уточнить его назначение.` : "Место на карте; назначение не указано в доступных данных.";
+  }
+
+  function categoryLabelRu(properties = {}, category = "other", isBuilding = false) {
+    if (isBuilding) return "Здание";
+    const props = properties || {};
+    const value = String(props.amenity || props.shop || props.tourism || props.leisure || props.office || props.healthcare || props.craft || props.class || props.type || props.subclass || "").toLowerCase();
+    const labels = {
+      restaurant: "Ресторан", cafe: "Кафе", fast_food: "Быстрое питание", bar: "Бар", pub: "Паб",
+      hotel: "Отель", guest_house: "Гостевой дом", hostel: "Хостел", museum: "Музей", gallery: "Галерея",
+      attraction: "Достопримечательность", viewpoint: "Смотровая площадка", monument: "Памятник", memorial: "Мемориал",
+      park: "Парк", garden: "Сад", playground: "Детская площадка", sports_centre: "Спортивный центр", fitness_centre: "Фитнес-клуб",
+      supermarket: "Супермаркет", convenience: "Магазин у дома", bakery: "Пекарня", pharmacy: "Аптека", clothes: "Магазин одежды",
+      shoes: "Обувной магазин", books: "Книжный магазин", department_store: "Универмаг", mall: "Торговый центр",
+      parcel_locker: "Постамат", post_office: "Почтовое отделение", marketplace: "Пункт выдачи заказов", bank: "Банк", atm: "Банкомат",
+      fuel: "Автозаправка", car_repair: "Автомастерская", doctors: "Медицинский кабинет", clinic: "Клиника", hospital: "Больница",
+      dentist: "Стоматология", school: "Школа", kindergarten: "Детский сад", library: "Библиотека", police: "Полиция",
+      townhall: "Администрация", bus_stop: "Остановка", bus_station: "Автовокзал", railway_station: "Железнодорожная станция",
+      subway_entrance: "Вход в метро", parking: "Парковка", toilets: "Общественный туалет", company: "Офис компании", government: "Государственное учреждение"
+    };
+    if (labels[value]) return labels[value];
+    if (props.shop) return "Магазин";
+    if (props.amenity) return "Объект обслуживания";
+    if (props.office) return "Офис";
+    return CATEGORY_META[category]?.label || "Место";
   }
 
   function hidePlaceDetails() {
@@ -429,12 +515,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
       name,
       category,
-      description: String(props["description:ru"] || props.description || props["description:en"] || "").trim() || descriptionForPlace(category, name),
+      description: String(props["description:ru"] || props.description || props["description:en"] || "").trim() || descriptionForPlace(category, name, props),
       address: addressParts.join(", "),
       lat: event.lngLat.lat,
       lon: event.lngLat.lng
     };
-    showPlaceDetails(place, { categoryLabel: isBuilding ? "Здание" : (props.class || props.type || CATEGORY_META[category]?.label || "Место") });
+    showPlaceDetails(place, { categoryLabel: categoryLabelRu(props, category, isBuilding) });
   }
 
   function categoryFromVectorProperties(properties = {}, sourceLayer = "") {
