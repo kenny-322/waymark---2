@@ -202,6 +202,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   let activeCity = null;
   let requestSequence = 0;
   let currentFilter = "all";
+  let searchQuery = "";
   let places = [];
   let fallbackAttractions = [];
   let markers = [];
@@ -607,8 +608,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   function applyPlaceFilter() {
     const definition = FILTER_DEFINITIONS[currentFilter] || FILTER_DEFINITIONS.all;
     for (const entry of markers) {
-      const matches = !definition.categories || definition.categories.has(entry.place.category);
-      entry.element.style.display = matches ? "flex" : "none";
+      const place = entry.place;
+      const haystack = [place.name, CATEGORY_META[place.category]?.label, place.address, place.description, place.tags?.brand, place.tags?.operator]
+        .filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
+      const textMatches = !searchQuery || haystack.includes(searchQuery);
+      const categoryMatches = !definition.categories || definition.categories.has(place.category);
+      entry.element.style.display = textMatches && categoryMatches ? "flex" : "none";
     }
     document.querySelectorAll("[data-place-filter]").forEach((button) => {
       const selected = button.dataset.placeFilter === currentFilter;
@@ -960,16 +965,81 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   const searchButton = document.getElementById("city-place-search-button");
   const routeBuildButton = document.getElementById("city-route-build-button");
   const searchInput = document.getElementById("city-place-search");
-  if (searchButton) searchButton.addEventListener("click", () => setStatus("Поиск мест будет подключён следующим этапом."));
-  if (routeBuildButton) routeBuildButton.addEventListener("click", () => setStatus("Построение маршрутов будет подключено следующим этапом."));
-  if (searchInput) searchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") setStatus("Поиск мест будет подключён следующим этапом.");
+  const routeFromInput = document.getElementById("city-route-from");
+  const routeToInput = document.getElementById("city-route-to");
+
+  function selectCityTool(tool) {
+    const isSearch = tool !== "route";
+    document.querySelectorAll("[data-city-tool]").forEach((button) => {
+      const selected = button.dataset.cityTool === (isSearch ? "search" : "route");
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+    const searchPanel = document.getElementById("city-search-panel");
+    const routePanel = document.getElementById("city-route-panel");
+    searchPanel?.classList.toggle("hidden", !isSearch);
+    routePanel?.classList.toggle("hidden", isSearch);
+    if (searchPanel) searchPanel.hidden = !isSearch;
+    if (routePanel) routePanel.hidden = isSearch;
+    if (!isSearch) routeFromInput?.focus({ preventScroll: true });
+  }
+
+  document.querySelectorAll("[data-city-tool]").forEach((button) => {
+    button.addEventListener("click", () => selectCityTool(button.dataset.cityTool));
+  });
+  selectCityTool("search");
+
+  function runPlaceSearch() {
+    searchQuery = String(searchInput?.value || "").trim().toLocaleLowerCase("ru-RU");
+    applyPlaceFilter();
+    const visible = markers.filter((entry) => entry.element.style.display !== "none");
+    if (!searchQuery) {
+      setStatus(places.length ? `${places.length} мест на карте · OpenStreetMap` : "Введите название места для поиска");
+    } else if (visible.length) {
+      setStatus(`Найдено мест: ${visible.length}`);
+      if (map && visible.length === 1) {
+        map.easeTo({ center: [visible[0].place.lon, visible[0].place.lat], zoom: Math.max(map.getZoom(), 15), duration: 450 });
+      }
+    } else {
+      setStatus("Ничего не найдено в загруженных данных этого города. Попробуйте другое название или категорию.");
+    }
+  }
+  searchButton?.addEventListener("click", runPlaceSearch);
+  searchInput?.addEventListener("input", runPlaceSearch);
+  searchInput?.addEventListener("keydown", (event) => { if (event.key === "Enter") runPlaceSearch(); });
+
+  function findPlaceByInput(value) {
+    const query = String(value || "").trim().toLocaleLowerCase("ru-RU");
+    if (!query) return null;
+    const normalized = (place) => [place.name, place.address, CATEGORY_META[place.category]?.label].filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
+    return places.find((place) => normalized(place) === query) ||
+      places.find((place) => place.name.toLocaleLowerCase("ru-RU").includes(query)) ||
+      places.find((place) => normalized(place).includes(query)) || null;
+  }
+
+  routeBuildButton?.addEventListener("click", () => {
+    const from = findPlaceByInput(routeFromInput?.value);
+    const to = findPlaceByInput(routeToInput?.value);
+    if (!from || !to) {
+      setStatus("Укажи две точки из загруженных мест города. Можно ввести часть названия.");
+      return;
+    }
+    if (from.id === to.id) {
+      setStatus("Начальная и конечная точки должны отличаться.");
+      return;
+    }
+    routeStops = [from, to];
+    renderRouteStops();
+    const bounds = new mapLibrary.LngLatBounds([from.lon, from.lat], [to.lon, to.lat]);
+    map?.fitBounds(bounds, { padding: { top: 120, right: 80, bottom: 90, left: 360 }, maxZoom: 15.5, duration: 650 });
+    setStatus(`Маршрут подготовлен: ${from.name} → ${to.name}. Линия соединяет выбранные точки; навигация по дорогам пока не подключена.`);
   });
   clearRouteButton.addEventListener("click", clearRoute);
   placeDetailsCloseButton.addEventListener("click", hidePlaceDetails);
   placeDetailsRouteButton.addEventListener("click", () => {
-    // The button is intentionally present but route integration is a later step.
-    setStatus("Построение маршрута для выбранного места подключим следующим этапом.");
+    selectCityTool("route");
+    if (routeToInput) routeToInput.value = placeDetailsTitle.textContent || "";
+    setStatus("Укажи начальную точку, чтобы составить маршрут к выбранному месту.");
   });
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();

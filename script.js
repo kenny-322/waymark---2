@@ -2187,7 +2187,7 @@ function updateCityLabels() {
   const zoomTier = cameraZ >= 5.75 ? 1 : cameraZ >= 5.05 ? 2 : 3;
   // Keep country names at distant zoom and city names at medium zoom; avoid
   // the broad overlap that previously showed both label systems together.
-  const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.25, 5.8);
+  const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.25, 5.52);
   // At very close globe zoom, city labels become visual clutter and disappear.
   // Globe city labels remain available even at maximum globe zoom. The close-zoom
   // label fade belongs to the city-map view, not to this globe overlay.

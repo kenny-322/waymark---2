@@ -151,18 +151,28 @@
       </div>
 
       <section class="city-explorer-search glass-panel" aria-label="Поиск и построение маршрута">
-        <label class="city-search-label" for="city-place-search">Поиск по городу</label>
-        <div class="city-search-row">
-          <span class="city-search-icon" aria-hidden="true">⌕</span>
-          <input id="city-place-search" type="search" placeholder="Места, адреса и организации" autocomplete="off" />
-          <button id="city-place-search-button" type="button" aria-label="Найти" title="Поиск будет подключён позже">Найти</button>
+        <div class="city-tool-tabs" role="tablist" aria-label="Инструменты города">
+          <button class="city-tool-tab active" id="city-search-tab" type="button" role="tab" aria-selected="true" aria-controls="city-search-panel" data-city-tool="search">Поиск</button>
+          <button class="city-tool-tab" id="city-route-tab" type="button" role="tab" aria-selected="false" aria-controls="city-route-panel" data-city-tool="route">Маршрут</button>
         </div>
-        <div class="city-search-divider"></div>
-        <div class="city-search-label">Построить маршрут</div>
-        <label class="city-route-field"><span aria-hidden="true">●</span><input id="city-route-from" type="text" placeholder="Откуда" autocomplete="off" /></label>
-        <label class="city-route-field destination"><span aria-hidden="true">◆</span><input id="city-route-to" type="text" placeholder="Куда" autocomplete="off" /></label>
-        <button id="city-route-build-button" class="city-route-build-button" type="button" title="Построение маршрута будет подключено позже">Построить маршрут</button>
-        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Поиск и маршруты скоро появятся</div>
+        <div id="city-search-panel" class="city-tool-panel" role="tabpanel" aria-labelledby="city-search-tab">
+          <label class="city-search-label" for="city-place-search">Найти место в этом городе</label>
+          <div class="city-search-row">
+            <span class="city-search-icon" aria-hidden="true">⌕</span>
+            <input id="city-place-search" type="search" placeholder="Название, адрес или категория" autocomplete="off" />
+            <button id="city-place-search-button" type="button" aria-label="Найти">Найти</button>
+          </div>
+          <div class="city-search-help">Результаты будут отмечены на карте</div>
+        </div>
+        <div id="city-route-panel" class="city-tool-panel hidden" role="tabpanel" aria-labelledby="city-route-tab" hidden>
+          <label class="city-search-label" for="city-route-from">Точка отправления</label>
+          <label class="city-route-field"><span aria-hidden="true">●</span><input id="city-route-from" type="text" placeholder="Название места или адрес" autocomplete="off" /></label>
+          <label class="city-search-label city-route-to-label" for="city-route-to">Куда направиться</label>
+          <label class="city-route-field destination"><span aria-hidden="true">◆</span><input id="city-route-to" type="text" placeholder="Название места или адрес" autocomplete="off" /></label>
+          <button id="city-route-build-button" class="city-route-build-button" type="button">Составить маршрут</button>
+          <div class="city-route-footnote">Выберите две точки из мест, найденных на карте города.</div>
+        </div>
+        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Введите название места для поиска</div>
       </section>
 
       <aside class="city-explorer-route city-explorer-route-state" aria-hidden="true">
