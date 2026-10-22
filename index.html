@@ -183,30 +183,6 @@
     </section>
   </main>
 
-  <script type="module">
-    import("./script.js").catch((error) => {
-      console.error("WAY●MARK startup failed:", error);
-      const loader = document.getElementById("startup-loader");
-      if (loader) {
-        loader.classList.add("is-hidden");
-        loader.setAttribute("aria-hidden", "true");
-        const message = document.createElement("div");
-        message.id = "startup-error-message";
-        message.style.cssText = "position:fixed;z-index:99999;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100vw - 32px));padding:24px;border-radius:18px;background:#fff;color:#182230;box-shadow:0 20px 70px #0002;font:14px/1.5 system-ui,sans-serif;text-align:left";
-        const title = document.createElement("h2");
-        title.textContent = "Не удалось запустить WAY●MARK";
-        title.style.cssText = "margin:0 0 10px;font-size:20px";
-        const detail = document.createElement("p");
-        detail.textContent = "Ошибка загрузки приложения. Обновите страницу через Ctrl + F5. Если ошибка повторится, откройте инструменты разработчика (F12) и пришлите первую красную ошибку из Console.";
-        detail.style.margin = "0 0 16px";
-        const retry = document.createElement("button");
-        retry.textContent = "Перезагрузить страницу";
-        retry.style.cssText = "border:0;border-radius:10px;padding:10px 14px;background:#1f5eff;color:white;cursor:pointer;font:inherit";
-        retry.addEventListener("click", () => location.reload());
-        message.append(title, detail, retry);
-        document.body.appendChild(message);
-      }
-    });
-  </script>
+  <script type="module" src="./script.js"></script>
 </body>
 </html>
