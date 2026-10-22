@@ -2816,10 +2816,10 @@ html[data-device="desktop"] .city-place-details {
   z-index: 6;
   top: 68px;
   right: 16px;
-  width: min(300px, calc(100vw - 32px));
+  width: min(360px, calc(100vw - 32px));
   max-height: calc(100% - 88px);
   overflow: auto;
-  padding: 17px;
+  padding: 20px;
   border: 1px solid rgba(255,255,255,.9);
   border-radius: 17px;
   background: rgba(255,255,255,.94);
@@ -2846,7 +2846,7 @@ html[data-device="mobile"] .city-place-details { display: none !important; }
 .city-place-details-category {
   padding-right: 28px;
   color: #6d8299;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .035em;
   text-transform: uppercase;
@@ -2860,9 +2860,10 @@ html[data-device="mobile"] .city-place-details { display: none !important; }
 }
 .city-place-details-description {
   margin: 0;
-  color: #637488;
-  font-size: 12px;
-  line-height: 1.5;
+  color: #465a70;
+  font-size: 13px;
+  line-height: 1.62;
+  overflow-wrap: anywhere;
 }
 .city-place-details-meta {
   display: grid;
@@ -2879,11 +2880,20 @@ html[data-device="mobile"] .city-place-details { display: none !important; }
   color: #8391a1;
   font-size: 10px;
 }
-.city-place-details-row strong {
+.city-place-details-row strong,
+.city-place-details-row a {
   color: #35465a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1.45;
   overflow-wrap: anywhere;
+}
+.city-place-details-row .city-place-details-link {
+  color: #2367c9;
+  text-decoration: none;
+}
+.city-place-details-row .city-place-details-link:hover {
+  text-decoration: underline;
 }
 .city-place-details-route {
   width: 100%;
