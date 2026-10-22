@@ -2030,9 +2030,8 @@ function showCityCard(city) {
         <h3 class="city-card-title">${escapeHtml(city.name)}</h3>
         <div class="city-card-country">${escapeHtml(city.flag || "")} ${escapeHtml(city.country || "")}</div>
       </div>
-      <div class="city-card-time" aria-label="Местное время"><span class="city-card-time-label">Местное время</span><strong data-city-time>${formatLocalTime(city)}</strong></div>
+      <div class="city-card-time" aria-label="Местное время"><strong data-city-time>${formatLocalTime(city)}</strong></div>
     </div>
-    <div class="city-card-tags"><span class="city-card-tag">Город</span></div>
     <div class="city-card-actions">
       <button class="city-card-button city-card-button-primary" id="city-add-route-button" type="button">Добавить в маршрут</button>
       <button class="city-card-button city-card-button-explore" id="city-explore-button" type="button">Исследовать город <span aria-hidden="true">↗</span></button>
@@ -2079,7 +2078,7 @@ function positionCityCard() {
 
   const position = projectCity(targetCity);
   if (!position.visible) {
-    cityCard.style.opacity = "0.78";
+    cityCard.style.opacity = "1";
     return;
   }
 
@@ -2188,7 +2187,7 @@ function updateCityLabels() {
   const zoomTier = cameraZ >= 5.75 ? 1 : cameraZ >= 5.05 ? 2 : 3;
   // Keep country names at distant zoom and city names at medium zoom; avoid
   // the broad overlap that previously showed both label systems together.
-  const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.25, 5.8);
+  const cityLayerFade = 1; // Keep city labels at stable opacity across globe zoom levels.
   // At very close globe zoom, city labels become visual clutter and disappear.
   // Globe city labels remain available even at maximum globe zoom. The close-zoom
   // label fade belongs to the city-map view, not to this globe overlay.

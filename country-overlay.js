@@ -208,7 +208,7 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
 
   function update() {
     const zoom = camera.position.z;
-    const countryOpacity = smoothStep(5.55, 6.2, zoom);
+    const countryOpacity = 0.86; // Stable country-label/border opacity; do not fade with zoom.
     borderMaterial.opacity = countryOpacity * 0.76;
     boundaryGroup.visible = loaded && countryOpacity > 0.015;
 

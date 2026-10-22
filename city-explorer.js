@@ -376,7 +376,14 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       [address.road || address.pedestrian || address.footway || address.residential, address.house_number].filter(Boolean).join(" "),
       address.postcode
     ].map(cleanPlaceValue).filter(Boolean);
-    return [...new Set(parts)].join(", ") || fallback;
+    const reverseParts = [...new Set(parts)];
+    const reverseHasStreet = Boolean(address.road || address.pedestrian || address.footway || address.residential);
+    const fallbackParts = String(fallback || "").split(",").map(cleanPlaceValue).filter(Boolean);
+    // Prefer reverse geocoding, but preserve a mapped street address if reverse lookup only returns broad geography.
+    if (!reverseHasStreet && fallbackParts.some((part) => /street|st\.|road|avenue|ул\.?|просп\.?|улица|шоссе|переулок/i.test(part))) {
+      return [...new Set([...reverseParts, ...fallbackParts.filter((part) => !reverseParts.includes(part))])].join(", ");
+    }
+    return reverseParts.join(", ") || fallback;
   }
 
   async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 6500) {
@@ -507,7 +514,8 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const props = place.properties || {};
     const categoryLabel = extra.categoryLabel || categoryLabelRu(props, place.category, false) || CATEGORY_META[place.category]?.label || "";
     const description = cleanPlaceValue(place.description || extra.description || "");
-    const hasUsefulInfo = Boolean(categoryLabel || description || place.address || props.phone || props.website || props.opening_hours || props.operator || props.brand || props.wikipedia || props.wikidata);
+    const displayAddress = cleanPlaceValue(place.address) || [activeCity?.country || "", activeCity?.name || activeCity?.name_en || ""].filter(Boolean).join(", ");
+    const hasUsefulInfo = Boolean(categoryLabel || description || displayAddress || props.phone || props.website || props.opening_hours || props.operator || props.brand || props.wikipedia || props.wikidata);
     placeDetailsTitle.textContent = place.name || "Место на карте";
     placeDetailsCategory.textContent = hasUsefulInfo ? categoryLabel : "";
     placeDetailsCategory.hidden = !hasUsefulInfo || !categoryLabel;
@@ -533,7 +541,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       placeDetailsMeta.appendChild(row);
     };
 
-    addRow("Адрес", place.address);
+    addRow("Адрес", displayAddress);
     const openingHours = props.opening_hours || props["opening_hours:ru"] || "";
     addRow("Часы работы", openingHours);
     const phone = props.phone || props["contact:phone"] || "";
