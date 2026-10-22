@@ -358,8 +358,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       address.state || address.region || address.province,
       address.city || address.town || address.village || address.municipality || fallbackCity,
       address.city_district || address.suburb || address.district || address.neighbourhood,
-      [address.road || address.pedestrian || address.residential || address.footway, address.house_number].filter(Boolean).join(" "),
-      address.postcode
+      address.road || address.pedestrian || address.residential || address.footway
     ].filter(Boolean);
     const unique = [];
     for (const part of parts) {
@@ -375,10 +374,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const city = activeCity?.name || activeCity?.name_en || "";
     const country = activeCity?.country || "";
     const street = properties["addr:street"] || properties.street || "";
-    const houseNumber = properties["addr:housenumber"] || properties.housenumber || "";
     const district = properties["addr:suburb"] || properties["addr:district"] || properties["addr:neighbourhood"] || "";
-    const streetAddress = [street, houseNumber].filter(Boolean).join(" ") || place.address || "";
-    return [country, activeCity?.region || "", city, district, streetAddress, properties["addr:postcode"] || ""]
+    const streetAddress = street || place.address || "";
+    return [country, activeCity?.region || "", city, district, streetAddress]
+      .filter(Boolean).map((part) => String(part).replace(/\s+\d+[\p{L}]?\s*$/u, "").trim())
       .filter(Boolean).filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index).join(", ");
   }
 
@@ -526,7 +525,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (/attraction|viewpoint|historic|monument/.test(normalized)) return typeLabels.attraction;
     if (/transport|station/.test(normalized)) return "Транспортный объект, связанный с посадкой пассажиров или передвижением по городу.";
     if (building && building !== "yes") return `Здание типа «${building.replaceAll("_", " ") }». Точное назначение не указано в картографических данных.`;
-    return name ? `Объект «${name}». В доступных картографических данных нет достаточно сведений, чтобы надёжно уточнить его назначение.` : "Место на карте; назначение не указано в доступных данных.";
+    return "";
   }
 
   function categoryLabelRu(properties = {}, category = "other", isBuilding = false) {
@@ -597,10 +596,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (!name) return;
 
     const street = props["addr:street"] || props.street || "";
-    const houseNumber = props["addr:housenumber"] || "";
     const cityName = activeCity?.name || activeCity?.name_en || "";
-    const addressParts = [activeCity?.country || "", activeCity?.region || "", cityName, props["addr:suburb"] || props["addr:district"] || "", [street, houseNumber].filter(Boolean).join(" "), props["addr:postcode"] || ""]
-      .filter(Boolean).filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index);
+    const addressParts = [activeCity?.country || "", activeCity?.region || "", cityName, props["addr:suburb"] || props["addr:district"] || "", street]
+      .filter(Boolean).map((part) => String(part).replace(/\s+\d+[\p{L}]?\s*$/u, "").trim()).filter(Boolean)
+      .filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index);
     const category = isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer);
     const place = {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
