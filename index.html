@@ -49,6 +49,18 @@
     </div>
   </div>
 
+  <!-- Independent startup watchdog: the app must remain reachable even if a remote module or texture never responds. -->
+  <script>
+    window.setTimeout(() => {
+      const loader = document.getElementById("startup-loader");
+      if (!loader) return;
+      loader.classList.add("is-hidden");
+      loader.setAttribute("aria-hidden", "true");
+      window.setTimeout(() => loader.remove(), 500);
+      console.warn("WAY●MARK: startup loader watchdog released the screen after a slow or failed initialization.");
+    }, 8000);
+  </script>
+
   <main id="app">
     <canvas id="globe-canvas" aria-label="Интерактивный глобус Waymark"></canvas>
     <div id="city-labels" aria-hidden="true"></div>
