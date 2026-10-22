@@ -352,6 +352,24 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     }
   }
 
+  // Keep addresses useful without house numbers, unit numbers, or numeric postal codes.
+  function cleanAddressPart(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\s*,\s*\d+[\p{L}]?(?:[-/]\d+[\p{L}]?)?\s*$/u, "")
+      .replace(/\s+\d+[\p{L}]?(?:[-/]\d+[\p{L}]?)?\s*$/u, "")
+      .replace(/\s+\d{4,}\s*$/u, "")
+      .trim();
+  }
+
+  function cleanPlaceDescription(value) {
+    const description = String(value || "").trim();
+    if (!description) return "";
+    // Some map records contain a generic disclaimer rather than useful information.
+    if (/в доступных картографических данных нет достаточно сведений|недостаточно сведений, чтобы надёжно уточнить его назначение|точное назначение не указано в картографических данных/i.test(description)) return "";
+    return description;
+  }
+
   function formatPlaceAddress(address = {}, fallbackCity = "", fallbackCountry = "") {
     const parts = [
       address.country,
@@ -362,7 +380,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     ].filter(Boolean);
     const unique = [];
     for (const part of parts) {
-      const normalized = String(part).trim();
+      const normalized = cleanAddressPart(part);
       if (normalized && !unique.some((item) => item.toLocaleLowerCase("ru-RU") === normalized.toLocaleLowerCase("ru-RU"))) unique.push(normalized);
     }
     if (!unique.length && fallbackCity) unique.push(fallbackCity);
@@ -377,7 +395,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const district = properties["addr:suburb"] || properties["addr:district"] || properties["addr:neighbourhood"] || "";
     const streetAddress = street || place.address || "";
     return [country, activeCity?.region || "", city, district, streetAddress]
-      .filter(Boolean).map((part) => String(part).replace(/\s+\d+[\p{L}]?\s*$/u, "").trim())
+      .filter(Boolean).map(cleanAddressPart)
       .filter(Boolean).filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index).join(", ");
   }
 
@@ -436,7 +454,8 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     activePopup = null;
     placeDetailsTitle.textContent = place.name || "Место на карте";
     placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Место";
-    placeDetailsDescription.textContent = place.description || extra.description || descriptionForPlace(place.category, place.name, place.tags || {});
+    const description = cleanPlaceDescription(place.description) || cleanPlaceDescription(extra.description) || cleanPlaceDescription(descriptionForPlace(place.category, place.name, place.tags || {}));
+    placeDetailsDescription.textContent = description;
     const initialAddress = getFallbackAddress(place, place.tags || {}) || place.address || "";
     renderPlaceAddress(initialAddress);
     placeDetailsPanel.classList.remove("hidden");
@@ -524,7 +543,8 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (/museum/.test(normalized)) return typeLabels.museum;
     if (/attraction|viewpoint|historic|monument/.test(normalized)) return typeLabels.attraction;
     if (/transport|station/.test(normalized)) return "Транспортный объект, связанный с посадкой пассажиров или передвижением по городу.";
-    if (building && building !== "yes") return `Здание типа «${building.replaceAll("_", " ") }». Точное назначение не указано в картографических данных.`;
+    // Unknown building types should not produce a generic disclaimer in the short description.
+    if (building && building !== "yes") return "";
     return "";
   }
 
@@ -598,14 +618,14 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const street = props["addr:street"] || props.street || "";
     const cityName = activeCity?.name || activeCity?.name_en || "";
     const addressParts = [activeCity?.country || "", activeCity?.region || "", cityName, props["addr:suburb"] || props["addr:district"] || "", street]
-      .filter(Boolean).map((part) => String(part).replace(/\s+\d+[\p{L}]?\s*$/u, "").trim()).filter(Boolean)
+      .filter(Boolean).map(cleanAddressPart).filter(Boolean)
       .filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index);
     const category = isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer);
     const place = {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
       name,
       category,
-      description: String(props["description:ru"] || props.description || props["description:en"] || "").trim() || descriptionForPlace(category, name, props),
+      description: cleanPlaceDescription(props["description:ru"] || props.description || props["description:en"] || "") || cleanPlaceDescription(descriptionForPlace(category, name, props)),
       address: addressParts.join(", "),
       tags: props,
       lat: event.lngLat.lat,
