@@ -211,6 +211,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   let isOpen = false;
   let mapViewMode = "2d";
   let minZoomCityId = null;
+  let selectedPlaceRequestId = 0;
+  let lastReverseGeocodeAt = 0;
+  const reverseGeocodeCache = new Map();
+  let reverseGeocodeQueue = Promise.resolve();
 
   function setStatus(message) {
     statusElement.textContent = message;
@@ -348,26 +352,107 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     }
   }
 
+  function formatPlaceAddress(address = {}, fallbackCity = "", fallbackCountry = "") {
+    const parts = [
+      address.country,
+      address.state || address.region || address.province,
+      address.city || address.town || address.village || address.municipality || fallbackCity,
+      address.city_district || address.suburb || address.district || address.neighbourhood,
+      [address.road || address.pedestrian || address.residential || address.footway, address.house_number].filter(Boolean).join(" "),
+      address.postcode
+    ].filter(Boolean);
+    const unique = [];
+    for (const part of parts) {
+      const normalized = String(part).trim();
+      if (normalized && !unique.some((item) => item.toLocaleLowerCase("ru-RU") === normalized.toLocaleLowerCase("ru-RU"))) unique.push(normalized);
+    }
+    if (!unique.length && fallbackCity) unique.push(fallbackCity);
+    if (fallbackCountry && !unique.some((item) => item.toLocaleLowerCase("ru-RU") === fallbackCountry.toLocaleLowerCase("ru-RU"))) unique.unshift(fallbackCountry);
+    return unique.join(", ");
+  }
+
+  function getFallbackAddress(place, properties = {}) {
+    const city = activeCity?.name || activeCity?.name_en || "";
+    const country = activeCity?.country || "";
+    const street = properties["addr:street"] || properties.street || "";
+    const houseNumber = properties["addr:housenumber"] || properties.housenumber || "";
+    const district = properties["addr:suburb"] || properties["addr:district"] || properties["addr:neighbourhood"] || "";
+    const streetAddress = [street, houseNumber].filter(Boolean).join(" ") || place.address || "";
+    return [country, activeCity?.region || "", city, district, streetAddress, properties["addr:postcode"] || ""]
+      .filter(Boolean).filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index).join(", ");
+  }
+
+  async function reverseGeocodeAddress(place) {
+    if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return "";
+    const cacheKey = `${place.lat.toFixed(5)},${place.lon.toFixed(5)}`;
+    if (reverseGeocodeCache.has(cacheKey)) return reverseGeocodeCache.get(cacheKey);
+    // Respect the public Nominatim service's rate limit: serialize requests and
+    // keep at least 1.1 seconds between reverse-geocoding calls.
+    const task = reverseGeocodeQueue.then(async () => {
+      const wait = Math.max(0, 1100 - (Date.now() - lastReverseGeocodeAt));
+      if (wait) await new Promise((resolve) => window.setTimeout(resolve, wait));
+      lastReverseGeocodeAt = Date.now();
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 5000);
+      try {
+        const url = new URL("https://nominatim.openstreetmap.org/reverse");
+        url.search = new URLSearchParams({ format: "jsonv2", lat: String(place.lat), lon: String(place.lon), zoom: "18", addressdetails: "1", "accept-language": "ru" }).toString();
+        const response = await fetch(url.toString(), { signal: controller.signal, headers: { Accept: "application/json" } });
+        if (!response.ok) throw new Error(`Reverse geocoding HTTP ${response.status}`);
+        const data = await response.json();
+        const address = formatPlaceAddress(data.address || {}, activeCity?.name || "", activeCity?.country || "");
+        reverseGeocodeCache.set(cacheKey, address);
+        return address;
+      } catch (error) {
+        // The map must remain usable when a public geocoder is unavailable.
+        return "";
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    });
+    reverseGeocodeQueue = task.catch(() => "");
+    return task;
+  }
+
+  function renderPlaceAddress(addressText) {
+    placeDetailsMeta.replaceChildren();
+    if (!addressText) return;
+    const row = document.createElement("div");
+    row.className = "city-place-details-row place-address";
+    const label = document.createElement("span");
+    label.className = "place-address-label";
+    label.textContent = "Адрес";
+    const value = document.createElement("strong");
+    value.textContent = addressText;
+    row.append(label, value);
+    placeDetailsMeta.appendChild(row);
+  }
+
   function showPlaceDetails(place, extra = {}) {
     // This iteration is intentionally desktop-only; leave the existing mobile UI untouched.
     if (!place || document.documentElement.dataset.device !== "desktop") return;
+    selectedPlaceRequestId += 1;
+    const requestId = selectedPlaceRequestId;
     if (activePopup) activePopup.remove();
     activePopup = null;
     placeDetailsTitle.textContent = place.name || "Место на карте";
     placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Место";
-    placeDetailsDescription.textContent = place.description || extra.description || descriptionForPlace(place.category, place.name);
-    placeDetailsMeta.replaceChildren();
-    if (place.address) {
-      const row = document.createElement("div");
-      row.className = "city-place-details-row place-address";
-      const val = document.createElement("strong");
-      val.textContent = place.address;
-      row.appendChild(val);
-      placeDetailsMeta.appendChild(row);
-    }
+    placeDetailsDescription.textContent = place.description || extra.description || descriptionForPlace(place.category, place.name, place.tags || {});
+    const initialAddress = getFallbackAddress(place, place.tags || {}) || place.address || "";
+    renderPlaceAddress(initialAddress);
     placeDetailsPanel.classList.remove("hidden");
     placeDetailsPanel.classList.add("visible");
     placeDetailsRouteButton.dataset.placeName = place.name || "";
+
+    // If vector tiles do not contain an address, ask the public reverse geocoder
+    // for the clicked coordinates. The city/country fallback is shown immediately.
+    const hasStreetAddress = Boolean(place.tags?.["addr:street"] || place.tags?.street || place.tags?.["addr:housenumber"] || place.tags?.housenumber);
+    if (!hasStreetAddress && Number.isFinite(place.lat) && Number.isFinite(place.lon)) {
+      reverseGeocodeAddress(place).then((resolvedAddress) => {
+        if (requestId !== selectedPlaceRequestId || placeDetailsPanel.classList.contains("hidden")) return;
+        if (resolvedAddress) renderPlaceAddress(resolvedAddress);
+      });
+    }
   }
 
   function descriptionForPlace(category, name = "", properties = {}) {
@@ -483,8 +568,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
 
   function handleVectorFeatureClick(event) {
     if (!map || !mapReady || !event?.point) return;
+    // A click starts a new selection. Empty map clicks close the previous place
+    // card and intentionally do not create a new one.
+    hidePlaceDetails();
+    selectedPlaceRequestId += 1;
     const features = map.queryRenderedFeatures(event.point) || [];
-    if (!features.length) return; // Clicking empty map space must not create a place card.
+    if (!features.length) return;
 
     // Prefer a named/meaningful point or area. An anonymous building footprint is
     // deliberately ignored instead of being presented as "Building on map".
@@ -510,7 +599,8 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const street = props["addr:street"] || props.street || "";
     const houseNumber = props["addr:housenumber"] || "";
     const cityName = activeCity?.name || activeCity?.name_en || "";
-    const addressParts = [houseNumber && street ? `${street} ${houseNumber}` : street, props["addr:suburb"] || props["addr:district"] || "", cityName].filter(Boolean);
+    const addressParts = [activeCity?.country || "", activeCity?.region || "", cityName, props["addr:suburb"] || props["addr:district"] || "", [street, houseNumber].filter(Boolean).join(" "), props["addr:postcode"] || ""]
+      .filter(Boolean).filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index);
     const category = isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer);
     const place = {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
@@ -518,6 +608,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       category,
       description: String(props["description:ru"] || props.description || props["description:en"] || "").trim() || descriptionForPlace(category, name, props),
       address: addressParts.join(", "),
+      tags: props,
       lat: event.lngLat.lat,
       lon: event.lngLat.lng
     };

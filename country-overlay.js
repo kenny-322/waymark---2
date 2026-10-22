@@ -208,8 +208,9 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
 
   function update() {
     const zoom = camera.position.z;
-    // Country names/borders only enter after city labels have fully faded out.
-    const countryOpacity = smoothStep(5.72, 6.2, zoom);
+    // Complement the globe city-label fade interval so there is no zoom range
+    // in which both countries and cities disappear. The two layers cross-fade.
+    const countryOpacity = smoothStep(5.25, 5.58, zoom);
     borderMaterial.opacity = countryOpacity * 0.76;
     boundaryGroup.visible = loaded && countryOpacity > 0.015;
 
