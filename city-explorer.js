@@ -356,32 +356,14 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Место";
     placeDetailsDescription.textContent = place.description || extra.description || descriptionForPlace(place.category, place.name);
     placeDetailsMeta.replaceChildren();
-    const appendDetail = (label, value, href = "") => {
-      if (value === undefined || value === null || !String(value).trim()) return;
+    if (place.address) {
       const row = document.createElement("div");
-      row.className = "city-place-details-row";
-      const caption = document.createElement("span");
-      caption.textContent = label;
-      const val = href ? document.createElement("a") : document.createElement("strong");
-      val.textContent = String(value).trim();
-      if (href) {
-        val.href = href;
-        val.target = "_blank";
-        val.rel = "noopener noreferrer";
-        val.className = "city-place-details-link";
-      }
-      row.append(caption, val);
+      row.className = "city-place-details-row place-address";
+      const val = document.createElement("strong");
+      val.textContent = place.address;
+      row.appendChild(val);
       placeDetailsMeta.appendChild(row);
-    };
-    appendDetail("Адрес", place.address);
-    const details = place.properties || {};
-    appendDetail("Организация", details.operator || details.brand);
-    appendDetail("Часы работы", details.opening_hours);
-    appendDetail("Телефон", details.phone || details["contact:phone"], (details.phone || details["contact:phone"]) ? `tel:${String(details.phone || details["contact:phone"]).replace(/[^+\\d]/g, "")}` : "");
-    const website = details.website || details["contact:website"] || details.url;
-    appendDetail("Сайт", website, website ? (/^https?:\\/\\//i.test(website) ? website : `https://${website}`) : "");
-    appendDetail("Кухня", details.cuisine ? String(details.cuisine).replaceAll(";", ", ").replaceAll("_", " ") : "");
-    if (details.wheelchair) appendDetail("Доступность", details.wheelchair === "yes" ? "Доступно для людей на инвалидных колясках" : details.wheelchair === "no" ? "Нет доступности для инвалидных колясок" : details.wheelchair);
+    }
     placeDetailsPanel.classList.remove("hidden");
     placeDetailsPanel.classList.add("visible");
     placeDetailsRouteButton.dataset.placeName = place.name || "";
@@ -399,9 +381,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const healthcare = tag("healthcare");
     const craft = tag("craft");
     const building = tag("building");
-    const publicTransport = tag("public_transport");
-    const railway = tag("railway");
-    const highway = tag("highway");
     const typeLabels = {
       parcel_locker: "Постамат для самостоятельного получения и отправки посылок.",
       post_office: "Почтовое отделение: сюда можно прийти для отправки и получения почты и посылок.",
@@ -443,53 +422,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       subway_entrance: "Вход на станцию метро.",
       parking: "Парковка для временной стоянки автомобилей.",
       toilets: "Общественный туалет.",
-      marketplace: "Торговая точка или пункт обслуживания покупателей.",
-      parcel_locker: "Постамат для самостоятельного получения или отправки посылок. Доступные операции зависят от оператора.",
-      parcel_pickup: "Пункт выдачи заказов: здесь получают интернет-покупки; возврат или отправка доступны, если их поддерживает оператор.",
-      hairdresser: "Парикмахерская, где оказывают услуги стрижки и укладки волос.",
-      beauty: "Салон красоты или студия ухода за внешностью. Конкретные процедуры зависят от заведения.",
-      laundry: "Прачечная для стирки и обработки одежды и текстиля.",
-      dry_cleaning: "Химчистка для профессиональной чистки одежды и текстиля.",
-      shoes: "Магазин обуви.",
-      clothes: "Магазин одежды.",
-      books: "Книжный магазин.",
-      electronics: "Магазин электроники и бытовой техники.",
-      mobile_phone: "Магазин мобильных телефонов и аксессуаров.",
-      optician: "Оптика: очки, линзы и сопутствующие товары; проверка зрения доступна, если указана отдельно.",
-      florist: "Цветочный магазин с букетами и растениями.",
-      butcher: "Мясная лавка или магазин мясных продуктов.",
-      greengrocer: "Магазин овощей и фруктов.",
-      car_wash: "Автомойка для очистки автомобиля.",
-      bicycle_repair: "Мастерская по ремонту и обслуживанию велосипедов.",
-      veterinary: "Ветеринарная клиника или кабинет для помощи животным.",
-      dentist: "Стоматологическая клиника или кабинет для осмотра и лечения зубов.",
-      childcare: "Учреждение или услуга по присмотру за детьми.",
-      university: "Высшее учебное заведение.",
-      college: "Колледж или учреждение профессионального образования.",
-      theatre: "Театр или сценическая площадка для представлений.",
-      cinema: "Кинотеатр для показа фильмов.",
-      arts_centre: "Культурный центр, где могут проходить выставки, занятия и мероприятия.",
-      community_centre: "Общественный центр для встреч, занятий и местных мероприятий.",
-      social_facility: "Учреждение социальной поддержки; конкретные услуги зависят от организации.",
-      recycling: "Пункт приёма или сортировки вторсырья; принимаемые материалы следует уточнять на месте.",
-      waste_disposal: "Место для сбора или сдачи отходов.",
-      charging_station: "Зарядная станция для электромобилей. Совместимость и доступность разъёмов зависят от оборудования.",
-      car_rental: "Пункт аренды автомобилей.",
-      taxi: "Стоянка или пункт заказа такси.",
-      embassy: "Посольство или дипломатическое представительство.",
-      courthouse: "Судебное учреждение.",
-      post_box: "Почтовый ящик для отправки писем.",
-      drinking_water: "Точка, где можно набрать питьевую воду.",
-      shower: "Душевая для посетителей.",
-      toilets: "Общественный туалет."
+      marketplace: "Торговая точка или пункт обслуживания покупателей."
     };
     if (shop && typeLabels[shop]) return typeLabels[shop];
     if (amenity && typeLabels[amenity]) return typeLabels[amenity];
     if (office) return office === "government" ? "Государственное или муниципальное учреждение." : office === "company" ? "Офис компании или организации." : "Офис или место оказания профессиональных услуг.";
-    if (healthcare) return healthcare === "pharmacy" ? typeLabels.pharmacy : healthcare === "dentist" ? typeLabels.dentist : "Медицинское учреждение или специалист, оказывающий услуги в сфере здравоохранения.";
-    if (publicTransport === "platform" || railway === "platform") return "Посадочная платформа общественного транспорта. Направление и маршруты уточняйте по указателям.";
-    if (railway === "station" || railway === "halt") return typeLabels.railway_station;
-    if (highway === "bus_stop") return typeLabels.bus_stop;
+    if (healthcare) return healthcare === "pharmacy" ? typeLabels.pharmacy : "Медицинское учреждение или специалист, оказывающий услуги в сфере здравоохранения.";
     if (craft) return "Мастерская или небольшое предприятие, выполняющее специализированные работы.";
     if (tourism && typeLabels[tourism]) return typeLabels[tourism];
     if (leisure === "park" || leisure === "garden") return typeLabels.park;
@@ -573,16 +511,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const cityName = activeCity?.name || activeCity?.name_en || "";
     const addressParts = [houseNumber && street ? `${street} ${houseNumber}` : street, props["addr:suburb"] || props["addr:district"] || "", cityName].filter(Boolean);
     const category = isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer);
-    const russianDescription = String(props["description:ru"] || "").trim();
-    const mappedDescription = String(props.description || "").trim();
-    const mappedDescriptionIsRussian = /[А-Яа-яЁё]/.test(mappedDescription);
     const place = {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
       name,
       category,
-      description: russianDescription || (mappedDescriptionIsRussian ? mappedDescription : descriptionForPlace(category, name, props)),
+      description: String(props["description:ru"] || props.description || props["description:en"] || "").trim() || descriptionForPlace(category, name, props),
       address: addressParts.join(", "),
-      properties: { ...props },
       lat: event.lngLat.lat,
       lon: event.lngLat.lng
     };

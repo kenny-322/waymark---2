@@ -2816,10 +2816,10 @@ html[data-device="desktop"] .city-place-details {
   z-index: 6;
   top: 68px;
   right: 16px;
-  width: min(380px, calc(100vw - 32px));
+  width: min(300px, calc(100vw - 32px));
   max-height: calc(100% - 88px);
   overflow: auto;
-  padding: 22px;
+  padding: 17px;
   border: 1px solid rgba(255,255,255,.9);
   border-radius: 17px;
   background: rgba(255,255,255,.94);
@@ -2860,13 +2860,9 @@ html[data-device="mobile"] .city-place-details { display: none !important; }
 }
 .city-place-details-description {
   margin: 0;
-  padding: 12px 13px;
-  border: 1px solid #e7edf5;
-  border-radius: 12px;
-  color: #4f6175;
-  background: linear-gradient(145deg, #f8fbff, #f1f6fb);
-  font-size: 13px;
-  line-height: 1.65;
+  color: #637488;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .city-place-details-meta {
   display: grid;
@@ -2883,19 +2879,12 @@ html[data-device="mobile"] .city-place-details { display: none !important; }
   color: #8391a1;
   font-size: 10px;
 }
-.city-place-details-row strong,
-.city-place-details-row a {
+.city-place-details-row strong {
   color: #35465a;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.city-place-details-link {
-  color: #286bd7 !important;
-  text-decoration: none;
-}
-.city-place-details-link:hover { text-decoration: underline; }
 .city-place-details-route {
   width: 100%;
   min-height: 38px;
@@ -3055,26 +3044,24 @@ html[data-device="mobile"] .city-place-details { display: none !important; }
   .city-explorer-heading h2 { font-size: 19px; }
 }
 
-/* Stable, generous desktop city-details dialog layered above the globe. */
+/* Compact desktop city-details dialog so the overview is visible without a long scroll. */
 html[data-device="desktop"] .app-modal {
-  width: min(1160px, 92vw);
-  height: min(82vh, 840px);
-  min-height: min(620px, 78vh);
-  max-height: 88vh;
-  padding: 25px 28px 28px;
-  border-radius: 26px;
-  overflow: auto;
+  width: min(1040px, 90vw);
+  height: auto;
+  max-height: 84vh;
+  padding: 18px 20px 20px;
+  border-radius: 23px;
 }
-html[data-device="desktop"] .modal-content { margin-top: 18px; }
+html[data-device="desktop"] .modal-content { margin-top: 13px; }
 html[data-device="desktop"] .modal-hero,
-html[data-device="desktop"] .modal-section { padding: 17px; border-radius: 17px; }
-html[data-device="desktop"] .modal-hero { min-height: 150px; gap: 16px; }
-html[data-device="desktop"] .modal-city-name { font-size: 30px; }
-html[data-device="desktop"] .modal-city-description { margin-top: 10px; font-size: 13px; line-height: 1.6; }
-html[data-device="desktop"] .modal-stat-grid { gap: 10px; }
-html[data-device="desktop"] .modal-stat { padding: 11px 12px; border-radius: 12px; }
-html[data-device="desktop"] .modal-stat .stat-value { font-size: 12px; }
-html[data-device="desktop"] .modal-section h3 { margin-bottom: 10px; }
-html[data-device="desktop"] .attraction-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+html[data-device="desktop"] .modal-section { padding: 12px; border-radius: 15px; }
+html[data-device="desktop"] .modal-hero { min-height: 0; gap: 14px; }
+html[data-device="desktop"] .modal-city-name { font-size: 25px; }
+html[data-device="desktop"] .modal-city-description { margin-top: 6px; font-size: 11px; line-height: 1.45; }
+html[data-device="desktop"] .modal-stat-grid { gap: 7px; }
+html[data-device="desktop"] .modal-stat { padding: 8px 9px; border-radius: 11px; }
+html[data-device="desktop"] .modal-stat .stat-value { font-size: 11px; }
+html[data-device="desktop"] .modal-section h3 { margin-bottom: 8px; }
+html[data-device="desktop"] .attraction-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 html[data-device="desktop"] .attraction-name { padding: 8px 9px 6px; font-size: 11px; }
 html[data-device="desktop"] .attraction-note { margin-top: 2px; padding: 0 9px 8px; font-size: 9px; line-height: 1.35; }
