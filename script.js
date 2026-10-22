@@ -2003,6 +2003,10 @@ function getCityWorldPosition(city) {
 }
 
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+}
+
 function formatLocalTime(city) {
   try {
     return new Intl.DateTimeFormat("ru-RU", {
@@ -2019,50 +2023,16 @@ function formatLocalTime(city) {
 function showCityCard(city) {
   window.clearTimeout(cityCardHideTimer);
   globeGroup.updateMatrixWorld();
-  const isDestination = state.selectedDestination?.id === city.id;
-  const stats = isDestination
-    ? `
-      <div class="stat-chip">
-        <div class="stat-label">Время</div>
-        <div class="stat-value" data-city-time>${formatLocalTime(city)}</div>
-      </div>
-      <div class="stat-chip">
-        <div class="stat-label">Погода</div>
-        <div class="stat-value">${city.weather.temp}°C · ${city.weather.condition}</div>
-      </div>
-      <div class="stat-chip">
-        <div class="stat-label">Валюта</div>
-        <div class="stat-value">${city.currency}</div>
-      </div>
-      <div class="stat-chip">
-        <div class="stat-label">Язык</div>
-        <div class="stat-value">${city.language}</div>
-      </div>`
-    : `
-      <div class="stat-chip">
-        <div class="stat-label">Страна</div>
-        <div class="stat-value">${city.flag} ${city.country}</div>
-      </div>
-      <div class="stat-chip">
-        <div class="stat-label">Время</div>
-        <div class="stat-value" data-city-time>${formatLocalTime(city)}</div>
-      </div>
-      <div class="stat-chip stat-chip-wide">
-        <div class="stat-label">Погода</div>
-        <div class="stat-value">${city.weather.temp}°C · ${city.weather.condition}</div>
-      </div>`;
-
   state.previewCity = city;
   cityCard.innerHTML = `
     <div class="city-card-title-row">
-      <div>
-        <h3 class="city-card-title">${city.name}</h3>
-        <div class="city-card-country">${city.flag} ${city.country}</div>
+      <div class="city-card-heading">
+        <h3 class="city-card-title">${escapeHtml(city.name)}</h3>
+        <div class="city-card-country">${escapeHtml(city.flag || "")} ${escapeHtml(city.country || "")}</div>
       </div>
-      <div class="city-card-flag">${city.flag}</div>
+      <div class="city-card-time" aria-label="Местное время"><span class="city-card-time-label">Местное время</span><strong data-city-time>${formatLocalTime(city)}</strong></div>
     </div>
-
-    <div class="city-card-stats">${stats}</div>
+    <div class="city-card-tags"><span class="city-card-tag">Город</span></div>
     <div class="city-card-actions">
       <button class="city-card-button city-card-button-primary" id="city-add-route-button" type="button">Добавить в маршрут</button>
       <button class="city-card-button city-card-button-explore" id="city-explore-button" type="button">Исследовать город <span aria-hidden="true">↗</span></button>
@@ -2071,19 +2041,23 @@ function showCityCard(city) {
   `;
 
   cityCard.classList.remove("hidden");
-  requestAnimationFrame(() => cityCard.classList.add("visible"));
+  cityCard.style.opacity = "0";
+  cityCard.style.visibility = "hidden";
+  requestAnimationFrame(() => {
+    positionCityCard();
+    cityCard.style.visibility = "visible";
+    cityCard.classList.add("visible");
+  });
 
   document.getElementById("city-add-route-button")?.addEventListener("click", (event) => {
     event.stopPropagation();
     selectCity(city);
   });
-
   document.getElementById("city-explore-button")?.addEventListener("click", (event) => {
     event.stopPropagation();
     hideCityCard();
     cityExplorerController.open(city);
   });
-
   document.getElementById("city-details-button")?.addEventListener("click", (event) => {
     event.stopPropagation();
     openCityDetailsModal(city);
@@ -2109,87 +2083,48 @@ function positionCityCard() {
     return;
   }
 
-  const safeTop = 94;
-  const safeBottom = 152;
-  const sidePadding = 12;
-  const gap = 14;
-
-  const maxCardWidth = isMobileUiActive() ? 270 : 280;
-  const cardWidth = Math.min(maxCardWidth, Math.max(220, window.innerWidth - sidePadding * 2));
-  const cardHeight = Math.max(210, Math.min(cityCard.offsetHeight || 270, 390));
-
-  const cityX = position.x;
-  const cityY = position.y;
-
-  const fitsAbove = cityY - gap - cardHeight >= safeTop;
-  const fitsBelow = cityY + gap + cardHeight <= window.innerHeight - safeBottom;
-
-  let left = cityX;
-  let top;
-  let placement;
-
-  // Prefer placing the card above the city, but never under the top bar.
-  if (fitsAbove) {
-    placement = "above";
-    top = cityY - gap;
-  } else if (fitsBelow) {
-    placement = "below";
-    top = cityY + gap;
-  } else {
-    // If the city is vertically boxed in, place the card beside it.
-    const rightSpace = window.innerWidth - cityX;
-    const leftSpace = cityX;
-
-    if (rightSpace >= cardWidth + gap + sidePadding) {
-      placement = "right";
-      left = cityX + gap + cardWidth / 2;
-      top = cityY;
-    } else {
-      placement = "left";
-      left = cityX - gap - cardWidth / 2;
-      top = cityY;
-    }
+  const pad = 14;
+  const safeTop = 82;
+  const safeBottom = 118;
+  const gap = 16;
+  const width = Math.min(isMobileUiActive() ? 270 : 310, window.innerWidth - pad * 2);
+  cityCard.style.width = `${width}px`;
+  // Measure the real compact card before choosing a location around the selected city.
+  cityCard.style.left = `${pad}px`;
+  cityCard.style.top = `${safeTop}px`;
+  cityCard.style.transform = "none";
+  const rect = cityCard.getBoundingClientRect();
+  const height = Math.max(100, rect.height || 140);
+  const x = position.x;
+  const y = position.y;
+  const viewportRight = window.innerWidth - pad;
+  const viewportBottom = window.innerHeight - safeBottom;
+  const candidates = [
+    { side: "right", left: x + gap, top: y - height / 2, fits: x + gap + width <= viewportRight && y - height / 2 >= safeTop && y + height / 2 <= viewportBottom },
+    { side: "left", left: x - gap - width, top: y - height / 2, fits: x - gap - width >= pad && y - height / 2 >= safeTop && y + height / 2 <= viewportBottom },
+    { side: "below", left: x - width / 2, top: y + gap, fits: x - width / 2 >= pad && x + width / 2 <= viewportRight && y + gap + height <= viewportBottom },
+    { side: "above", left: x - width / 2, top: y - gap - height, fits: x - width / 2 >= pad && x + width / 2 <= viewportRight && y - gap - height >= safeTop }
+  ];
+  let chosen = candidates.find((candidate) => candidate.fits);
+  if (!chosen) {
+    // When no side fits completely, choose the side with most usable space and clamp it to the viewport.
+    const spaces = [
+      { side: "right", space: viewportRight - x, left: x + gap, top: y - height / 2 },
+      { side: "left", space: x - pad, left: x - gap - width, top: y - height / 2 },
+      { side: "below", space: viewportBottom - y, left: x - width / 2, top: y + gap },
+      { side: "above", space: y - safeTop, left: x - width / 2, top: y - gap - height }
+    ].sort((a, b) => b.space - a.space);
+    chosen = spaces[0];
   }
-
-  // Keep the entire card inside the viewport.
-  left = THREE.MathUtils.clamp(
-    left,
-    sidePadding + cardWidth / 2,
-    window.innerWidth - sidePadding - cardWidth / 2
-  );
-
-  const minTop = safeTop + cardHeight / 2;
-  const maxTop = window.innerHeight - safeBottom - cardHeight / 2;
-
-  if (placement === "above") {
-    top = THREE.MathUtils.clamp(top, safeTop + cardHeight, window.innerHeight - safeBottom);
-    cityCard.classList.remove("card-left", "card-right", "card-below");
-    cityCard.classList.add("card-above");
-    cityCard.style.left = `${left}px`;
-    cityCard.style.top = `${top}px`;
-  } else if (placement === "below") {
-    top = THREE.MathUtils.clamp(top, safeTop, window.innerHeight - safeBottom - cardHeight);
-    cityCard.classList.remove("card-left", "card-right", "card-above");
-    cityCard.classList.add("card-below");
-    cityCard.style.left = `${left}px`;
-    cityCard.style.top = `${top}px`;
-  } else if (placement === "right") {
-    top = THREE.MathUtils.clamp(top, minTop, Math.max(minTop, maxTop));
-    cityCard.classList.remove("card-left", "card-below", "card-above");
-    cityCard.classList.add("card-right");
-    cityCard.style.left = `${left}px`;
-    cityCard.style.top = `${top}px`;
-  } else {
-    top = THREE.MathUtils.clamp(top, minTop, Math.max(minTop, maxTop));
-    cityCard.classList.remove("card-right", "card-below", "card-above");
-    cityCard.classList.add("card-left");
-    cityCard.style.left = `${left}px`;
-    cityCard.style.top = `${top}px`;
-  }
-
-  // Repaint only after coordinates are final.
+  const left = THREE.MathUtils.clamp(chosen.left, pad, Math.max(pad, window.innerWidth - width - pad));
+  const top = THREE.MathUtils.clamp(chosen.top, safeTop, Math.max(safeTop, viewportBottom - height));
+  cityCard.classList.remove("card-left", "card-right", "card-above", "card-below");
+  cityCard.classList.add(`card-${chosen.side}`);
+  cityCard.style.left = `${left}px`;
+  cityCard.style.top = `${top}px`;
   cityCard.style.opacity = "1";
 }
+
 function projectCity(city) {
   const entry = cityEntriesById.get(city.id);
   if (!entry) return { x: 0, y: 0, visible: false };

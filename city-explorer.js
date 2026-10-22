@@ -366,14 +366,14 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     return [...new Set([country, region, city, district, street ? `${street}${house ? `, ${house}` : ""}${unit ? `, ${unit}` : ""}` : "", postcode].filter(Boolean))].join(", ");
   }
 
-  function fullAddressFromReverse(result, fallback) {
+  function fullAddressFromReverse(result, fallback, cityName = "", countryName = "") {
     const address = result?.address || {};
     const parts = [
-      address.country,
-      address.state || address.province || address.region,
-      address.city || address.town || address.village || address.municipality,
+      address.country || countryName,
+      address.state || address.province || address.region || address.state_district,
+      address.city || address.town || address.village || address.municipality || cityName,
       address.suburb || address.city_district || address.county,
-      [address.road || address.pedestrian || address.footway, address.house_number].filter(Boolean).join(" "),
+      [address.road || address.pedestrian || address.footway || address.residential, address.house_number].filter(Boolean).join(" "),
       address.postcode
     ].map(cleanPlaceValue).filter(Boolean);
     return [...new Set(parts)].join(", ") || fallback;
@@ -397,6 +397,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const cityName = activeCity?.name || activeCity?.name_en || "";
     let properties = { ...(place.properties || {}) };
     let address = place.address || addressFromOsmTags(properties, cityName);
+    if (!address) address = [activeCity?.country || "", cityName].filter(Boolean).join(", ");
     let description = cleanPlaceValue(properties["description:ru"] || properties.description || properties["description:en"] || place.description);
     let categoryLabel = "";
     let wikipediaDescription = "";
@@ -446,7 +447,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
         lastReverseGeocodeAt = Date.now();
         const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
         const reverse = await fetchJsonWithTimeout(url, { headers: { Accept: "application/json" } }, 5000);
-        address = fullAddressFromReverse(reverse, address);
+        address = fullAddressFromReverse(reverse, address, cityName, activeCity?.country || "");
       } catch (_) { /* Address from OSM tags is the fallback. */ }
     }
 
@@ -786,7 +787,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     const houseNumber = props["addr:housenumber"] || "";
     const cityName = activeCity?.name || activeCity?.name_en || "";
     const addressParts = [
-      props["addr:country_name"] || props["addr:country"] || "",
+      props["addr:country_name"] || props["addr:country"] || activeCity?.country || "",
       props["addr:state"] || props["addr:province"] || props["addr:region"] || "",
       cityName,
       props["addr:suburb"] || props["addr:district"] || props["addr:quarter"] || "",

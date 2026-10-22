@@ -1236,13 +1236,15 @@ button {
 .city-card {
   pointer-events: auto;
   position: absolute;
-  width: 190px;
-  padding: 11px;
-  border-radius: 15px;
+  width: 310px;
+  max-width: calc(100vw - 28px);
+  padding: 14px;
+  border-radius: 16px;
   z-index: 16;
   opacity: 0;
   transform: none;
-  transition: left 280ms ease, top 280ms ease, opacity 220ms ease, transform 220ms ease;
+  visibility: visible;
+  transition: left 180ms ease, top 180ms ease, opacity 160ms ease;
 }
 
 .city-card.visible {
@@ -1273,28 +1275,67 @@ button {
 }
 
 .city-card-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
 }
+
+.city-card-heading { min-width: 0; }
 
 .city-card-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
+  line-height: 1.15;
   font-weight: 800;
   letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
 }
 
 .city-card-country {
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
-.city-card-flag {
-  font-size: 18px;
+.city-card-time {
+  min-width: 78px;
+  text-align: center;
+  padding: 7px 9px;
+  border: 1px solid rgba(130, 150, 170, 0.22);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.58);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-self: center;
+}
+
+.city-card-time-label {
+  color: #87919d;
+  font-size: 9px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.city-card-time strong {
+  color: #26313d;
+  font-size: 16px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.city-card-tags { margin-top: 10px; }
+.city-card-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(91, 124, 250, 0.10);
+  color: #5267b7;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .city-card-stats {
@@ -1791,37 +1832,25 @@ button {
   }
 }
 
-.city-card.card-above {
-  transform: translate(-50%, -100%);
-}
-
-.city-card.card-above.visible {
-  transform: translate(-50%, -100%);
-}
-
-.city-card.card-below {
-  transform: translate(-50%, 0);
-}
-
-.city-card.card-below.visible {
-  transform: translate(-50%, 0);
-}
-
-.city-card.card-right {
-  transform: translate(0, -50%);
-}
-
-.city-card.card-right.visible {
-  transform: translate(0, -50%);
-}
-
-.city-card.card-left {
-  transform: translate(-100%, -50%);
-}
-
+.city-card.card-above,
+.city-card.card-above.visible,
+.city-card.card-below,
+.city-card.card-below.visible,
+.city-card.card-right,
+.city-card.card-right.visible,
+.city-card.card-left,
 .city-card.card-left.visible {
-  transform: translate(-100%, -50%);
+  transform: none;
 }
+
+.city-card.card-left::after,
+.city-card.card-right::after,
+.city-card.card-above::after { display: none; }
+
+.city-card.card-below::after {
+  left: 50%;
+}
+
 
 @keyframes attractionShimmer {
   from { background-position: 200% 0; }
