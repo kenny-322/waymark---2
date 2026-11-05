@@ -224,8 +224,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   const routePanel = elementById("city-explorer-route");
   const routeStopsElement = elementById("city-explorer-route-stops");
   const routeEmptyElement = elementById("city-explorer-route-empty");
-  const routeResetButton = elementById("city-route-reset");
   const routeSaveButton = elementById("city-route-save");
+  const routeResetButton = elementById("city-route-reset");
   const routeReturnButton = elementById("city-route-return");
 
   const placeDetailsPanel = elementById("city-place-details");
@@ -236,9 +236,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   const placeDetailsInfo = elementById("city-place-details-info");
   const placeDetailsInfoRows = elementById("city-place-details-info-rows");
   const placeDetailsAddButton = elementById("city-place-details-add");
-  const placeDetailsResetButton = elementById("city-place-details-reset");
-  const placeDetailsOriginButton = elementById("city-place-set-origin");
-  const placeDetailsDestinationButton = elementById("city-place-set-destination");
   const placeDetailsCloseButton = elementById("city-place-details-close");
 
   const aboutButton = elementById("city-about-button");
@@ -374,10 +371,18 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   }
 
   function updateRouteControls() {
-    routeResetButton.disabled = routeStops.length === 0;
     // One place is enough to press "Добавить в мои маршруты": the user then gets
-    // the "Выберите больше одного места" hint instead of a silent disabled button.
+    // the "Выберите как минимум два места" hint instead of a silent disabled button.
     routeSaveButton.disabled = routeStops.length === 0;
+    // The reset link only exists while there is something to reset.
+    routeResetButton.classList.toggle("hidden", routeStops.length === 0);
+  }
+
+  function clearRoute() {
+    if (!routeStops.length) return;
+    routeStops = [];
+    renderRouteStops();
+    onToast("Маршрут сброшен");
   }
 
   function removePlaceFromRoute(placeId) {
@@ -403,38 +408,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     return true;
   }
 
-  function flashRoutePanel() {
-    routePanel.classList.remove("route-flash");
-    // Restart the CSS animation even when it was already running.
-    void routePanel.offsetWidth;
-    routePanel.classList.add("route-flash");
-    window.setTimeout(() => routePanel.classList.remove("route-flash"), 1500);
-  }
-
-  function placeAsEndpoint(place, edge) {
-    if (!place?.id) return;
-    const wasInRoute = isInRoute(place);
-    if (wasInRoute) routeStops = routeStops.filter((item) => item.id !== place.id);
-    if (!wasInRoute && routeStops.length >= maxRouteStops) {
-      onToast(`Максимум мест в маршруте: ${maxRouteStops}.`);
-      return;
-    }
-    if (edge === "start") routeStops.unshift(place);
-    else routeStops.push(place);
-    renderRouteStops();
-    flashRoutePanel();
-    onToast(edge === "start" ? "Место выбрано точкой отправления" : "Место выбрано точкой прибытия");
-  }
-
-  function clearRoute({ silent = false } = {}) {
-    if (!routeStops.length) {
-      if (!silent) onToast("Маршрут уже пуст");
-      return;
-    }
-    routeStops = [];
-    renderRouteStops();
-    if (!silent) onToast("Маршрут сброшен");
-  }
 
   function fitRoute({ duration = 850 } = {}) {
     if (!mapReady || !map || !routeStops.length) return;
@@ -495,7 +468,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   function saveCurrentRoute() {
     if (!activeCity) return;
     if (routeStops.length < 2) {
-      onToast("Выберите больше одного места");
+      onToast("Выберите как минимум два места");
       return;
     }
     const saved = {
@@ -814,7 +787,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     const inRoute = isInRoute(currentPlace);
     placeDetailsAddButton.disabled = !currentPlace || inRoute;
     placeDetailsAddButton.textContent = inRoute ? "В маршруте ✓" : "Добавить в маршрут";
-    placeDetailsResetButton.disabled = routeStops.length === 0;
   }
 
   function showPlaceDetails(place, extra = {}) {
@@ -1382,19 +1354,12 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
 
   elementById("city-explorer-back").addEventListener("click", close);
 
-  routeResetButton.addEventListener("click", () => clearRoute());
   routeSaveButton.addEventListener("click", saveCurrentRoute);
+  routeResetButton.addEventListener("click", clearRoute);
   routeReturnButton.addEventListener("click", () => fitRoute({ duration: 700 }));
   placeDetailsCloseButton.addEventListener("click", hidePlaceDetails);
   placeDetailsAddButton.addEventListener("click", () => {
     if (currentPlace) addPlaceToRoute(currentPlace);
-  });
-  placeDetailsResetButton.addEventListener("click", () => clearRoute());
-  placeDetailsOriginButton.addEventListener("click", () => {
-    if (currentPlace) placeAsEndpoint(currentPlace, "start");
-  });
-  placeDetailsDestinationButton.addEventListener("click", () => {
-    if (currentPlace) placeAsEndpoint(currentPlace, "end");
   });
 
   searchInput.addEventListener("input", (event) => renderSearchResults(event.target.value));

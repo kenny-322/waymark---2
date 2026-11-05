@@ -113,11 +113,20 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
   globeGroup.add(boundaryGroup);
 
   const borderMaterial = new THREE.LineBasicMaterial({
-    color: 0xe8f0fa,
+    color: 0xeaf4ff,
     transparent: true,
     opacity: 0,
     depthTest: true,
     depthWrite: false
+  });
+  // A second pass with additive blending gives the borders a soft glow.
+  const borderGlowMaterial = new THREE.LineBasicMaterial({
+    color: 0x8fc8ff,
+    transparent: true,
+    opacity: 0,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
   });
   const labels = [];
   let loaded = false;
@@ -196,6 +205,13 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
       lines.name = "WAYMARK country outlines";
       lines.renderOrder = 1.5;
       boundaryGroup.add(lines);
+
+      const glowLines = new THREE.LineSegments(geometry, borderGlowMaterial);
+      glowLines.name = "WAYMARK country glow";
+      glowLines.renderOrder = 1.4;
+      // Reuse the same geometry: scaling outward is enough for the halo.
+      glowLines.scale.setScalar(1.0035);
+      boundaryGroup.add(glowLines);
       addCountryLabels(data.features);
       loaded = true;
     } catch (error) {
@@ -214,6 +230,7 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
     const countryOpacity = zoom >= 5.45 ? 1 : 0;
     const borderOpacity = smoothStep(5.35, 5.55, zoom);
     borderMaterial.opacity = borderOpacity * 0.76;
+    borderGlowMaterial.opacity = borderOpacity * 0.28;
     boundaryGroup.visible = loaded && borderOpacity > 0.015;
 
     if (!loaded || countryOpacity < 0.5) {

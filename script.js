@@ -5,9 +5,9 @@ import { createCountryBoundaryOverlay } from "./country-overlay.js";
 import { createCityExplorer } from "./city-explorer.js";
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.49";
+export const WAYMARK_VERSION = "1.51";
 document.documentElement.dataset.version = WAYMARK_VERSION;
-console.info(`WAY●MARK ${WAYMARK_VERSION} — маршруты по городу, разделы и подписи`);
+console.info(`WAY●MARK ${WAYMARK_VERSION} — маршрут по городу и обновлённый глобус`);
 
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
@@ -280,14 +280,14 @@ function getMobileSwipeZoomSensitivity() {
   return THREE.MathUtils.lerp(MOBILE_TOUCH_MIN_ZOOM_SENSITIVITY, 1, easedProgress);
 }
 
-const ambientLight = new THREE.HemisphereLight(0xeaf4ff, 0x647180, 1.85);
+const ambientLight = new THREE.HemisphereLight(0xeef7ff, 0x5c6f86, 1.75);
 scene.add(ambientLight);
 
-const sunLight = new THREE.DirectionalLight(0xffffff, 0.62);
+const sunLight = new THREE.DirectionalLight(0xfff6e8, 0.78);
 sunLight.position.set(4.5, 4.0, 4.5);
 scene.add(sunLight);
 
-const rimLight = new THREE.DirectionalLight(0x9dcfff, 0.12);
+const rimLight = new THREE.DirectionalLight(0xa9d7ff, 0.22);
 rimLight.position.set(-3.5, 1.0, -3.0);
 scene.add(rimLight);
 
@@ -327,7 +327,7 @@ const earthMaterial = new THREE.MeshStandardMaterial({
   roughness: 0.96,
   metalness: 0.0,
   emissive: new THREE.Color(0x30465c),
-  emissiveIntensity: 0.15
+  emissiveIntensity: 0.12
 });
 
 const earth = new THREE.Mesh(
@@ -338,9 +338,9 @@ globeGroup.add(earth);
 
 const atmosphereMaterial = new THREE.ShaderMaterial({
   uniforms: {
-    c: { value: 0.09 },
-    p: { value: 3.2 },
-    glowColor: { value: new THREE.Color(0x79bfff) }
+    c: { value: 0.12 },
+    p: { value: 2.8 },
+    glowColor: { value: new THREE.Color(0x9fd2ff) }
   },
   vertexShader: `
     varying vec3 vNormal;
@@ -380,9 +380,32 @@ const atmosphere = new THREE.Mesh(
 );
 globeGroup.add(atmosphere);
 
+// A second, much wider and fainter shell gives the planet a soft outer halo
+// instead of a hard glowing rim.
+const atmosphereHaloMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    c: { value: 0.05 },
+    p: { value: 2.2 },
+    glowColor: { value: new THREE.Color(0x86c2ff) }
+  },
+  vertexShader: atmosphereMaterial.vertexShader,
+  fragmentShader: atmosphereMaterial.fragmentShader,
+  blending: THREE.AdditiveBlending,
+  side: THREE.BackSide,
+  transparent: true,
+  depthWrite: false
+});
+
+const atmosphereHalo = new THREE.Mesh(
+  new THREE.SphereGeometry(GLOBE_RADIUS * 1.075, 160, 110),
+  atmosphereHaloMaterial
+);
+globeGroup.add(atmosphereHalo);
+
+const CLOUD_OPACITY = 0.22;
 const cloudMaterial = new THREE.MeshPhongMaterial({
   transparent: true,
-  opacity: 0.16,
+  opacity: CLOUD_OPACITY,
   depthWrite: false,
   shininess: 0,
   side: THREE.DoubleSide
@@ -412,15 +435,14 @@ let loadedTopologyTexture = null;
 // Load nice Earth textures. If a remote asset is unavailable,
 // the fallback base color remains usable.
 Promise.all([
-  loadTexture(
-    "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-topography/january/world.topo.200401.3x5400x2700.jpg",
-    THREE.SRGBColorSpace
-  ),
+  // A clean blue-marble Earth reads better than the old brown-toned topography.
+  loadTexture("https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg", THREE.SRGBColorSpace),
   loadTexture("https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"),
   loadTexture("https://threejs.org/examples/textures/planets/earth_clouds_1024.png", THREE.SRGBColorSpace)
-]).then(async ([nasaMap, topologyMap, cloudsMap]) => {
-  const earthMap = nasaMap || await loadTexture(
-    "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg",
+]).then(async ([blueMarbleMap, topologyMap, cloudsMap]) => {
+  // If the primary CDN asset is unavailable, fall back to the NASA topography.
+  const earthMap = blueMarbleMap || await loadTexture(
+    "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-topography/january/world.topo.200401.3x5400x2700.jpg",
     THREE.SRGBColorSpace
   );
 
@@ -449,7 +471,7 @@ Promise.all([
   if (cloudsMap) {
     cloudMaterial.map = cloudsMap;
     cloudMaterial.color.set(0xffffff);
-    cloudMaterial.opacity = 0.075;
+    cloudMaterial.opacity = CLOUD_OPACITY;
     cloudMaterial.needsUpdate = true;
   }
 }).catch((error) => {
@@ -489,7 +511,7 @@ function setPerformanceMode(active) {
       earthMaterial.needsUpdate = true;
     }
 
-    cloudMaterial.opacity = 0.075;
+    cloudMaterial.opacity = CLOUD_OPACITY;
   }
 
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -531,9 +553,9 @@ const cityEntries = CITY_DATA.map((city) => {
   const marker = new THREE.Mesh(
     CITY_MARKER_GEOMETRY,
     new THREE.MeshBasicMaterial({
-      color: 0x91a0ae,
+      color: 0xa7bdd8,
       transparent: true,
-      opacity: 0.55
+      opacity: 0.68
     })
   );
 
@@ -553,6 +575,8 @@ const cityEntries = CITY_DATA.map((city) => {
   cityEntriesById.set(city.id, entry);
   return entry;
 });
+
+
 
 function findCity(cityId) {
   return cityById.get(cityId) || null;
@@ -758,9 +782,13 @@ function dimCompletedRouteVisuals() {
   state.sceneDirty = true;
 }
 
-function startRouteAnimation(origin, destination, transport) {
+function startRouteAnimation(origin, destination, transport, { frameCamera = false } = {}) {
   // A new leg is added to the existing trip; previous legs remain visible.
   dimCompletedRouteVisuals();
+
+  // Surprise journeys move the camera to the leg that is about to be drawn, so
+  // the user always sees the part of the world the route is crossing.
+  if (frameCamera) focusGlobeOnRoute(origin, destination, { duration: 1100 });
 
   const points = getRouteArcPoints(origin, destination, 150);
 
@@ -868,7 +896,7 @@ function finishRouteAnimation() {
         state.labelsDirty = true;
 
         window.setTimeout(() => {
-          startRouteAnimation(nextOrigin, nextDestination, transport);
+          startRouteAnimation(nextOrigin, nextDestination, transport, { frameCamera: true });
         }, 180);
         return;
       }
@@ -1574,12 +1602,6 @@ function openSurpriseModal() {
 
   modalTitle.textContent = "Удиви меня";
   modalContent.innerHTML = `
-    <div class="surprise-header">
-      <div>
-        <div class="surprise-lead">Выбор параметров путешествия</div>
-      </div>
-    </div>
-
     <div class="surprise-section-heading">
       <span class="surprise-section-kicker">Готовые шаблоны</span>
       <span class="surprise-section-line"></span>
@@ -1631,6 +1653,8 @@ function openSurpriseModal() {
   `;
 
   openModal();
+  // The surprise dialog must fit a default desktop screen without scrolling.
+  appModal?.classList.add("is-surprise");
 
   const updateSurpriseSelection = () => {
     document.querySelectorAll("[data-surprise-mode]").forEach((card) => {
@@ -1701,7 +1725,7 @@ function startSurpriseJourney(mode, count, filters = state.surpriseFilters) {
   }
 
   state.selectedTransport = transport;
-  startRouteAnimation(cities[0], cities[1], transport);
+  startRouteAnimation(cities[0], cities[1], transport, { frameCamera: true });
 }
 
 const CURRENCY_TO_RUB = {
@@ -1993,10 +2017,10 @@ function updateCityLabelStyles() {
             ? 0x6589ba
             : tripCityIds.has(entry.city.id)
               ? 0x7b9bc8
-              : 0x91a0ae
+              : 0xa7bdd8
       );
 
-      entry.marker.material.opacity = isSelected ? 0.95 : 0.55;
+      entry.marker.material.opacity = isSelected ? 0.95 : 0.68;
     }
   }
   state.sceneDirty = true;
@@ -2364,7 +2388,7 @@ function updateCityLabels() {
       entry.marker.visible = frontFacing && inScreen && combinedCityFade > 0.02;
     }
     if (entry.marker.material instanceof THREE.MeshBasicMaterial) {
-      entry.marker.material.opacity = (candidate.forced ? 0.95 : 0.55) * combinedCityFade;
+      entry.marker.material.opacity = (candidate.forced ? 0.95 : 0.68) * combinedCityFade;
     }
 
     if (chosen) occupy(chosen);
@@ -2527,8 +2551,9 @@ function setModalBackButton(visible, handler) {
 
 function openModal() {
   setModalBackButton(false);
-  // Every dialog starts at its normal size; only the saved-trips list stays compact.
+  // Every dialog starts at its normal size; compact variants are opt-in.
   appModal?.classList.remove("is-compact");
+  appModal?.classList.remove("is-surprise");
   modalBackdrop.classList.remove("hidden");
   state.activeModal = true;
 }
@@ -2587,10 +2612,11 @@ function focusCityOnGlobe(city) {
 
   const animateFocus = (now) => {
     const progress = THREE.MathUtils.clamp((now - startedAt) / duration, 0, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
+    // Smoothstep keeps both the start and the end of the flight gentle.
+    const eased = progress * progress * (3 - 2 * progress);
 
     globeGroup.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, eased);
-    camera.position.z = startZoom + (targetZoom - startZoom) * eased;
+    camera.position.z = startZoom + (clampedZoom - startZoom) * eased;
     state.labelsDirty = true;
     state.sceneDirty = true;
 
@@ -2606,15 +2632,11 @@ function focusCityOnGlobe(city) {
   cityFocusFrame = requestAnimationFrame(animateFocus);
 }
 
-// Mobile-only search focus. Animate Euler yaw/pitch (with roll fixed to zero)
+// Smooth globe camera focus. Animate Euler yaw/pitch (with roll fixed to zero)
 // rather than a free quaternion, so finding a city cannot turn the globe upside down
 // or invert the horizontal swipe direction afterward.
-function focusCityOnGlobeMobile(city) {
-  if (!city) return;
-
-  if (cityFocusFrame) cancelAnimationFrame(cityFocusFrame);
-
-  const localDirection = cityToVector3(city, 1).normalize();
+function focusGlobeOnPoint(lat, lon, targetZoom, { duration = 800 } = {}) {
+  const localDirection = cityToVector3({ lat, lon }, 1).normalize();
   const latitudeAngle = Math.atan2(
     localDirection.y,
     Math.hypot(localDirection.x, localDirection.z)
@@ -2641,9 +2663,10 @@ function focusCityOnGlobeMobile(city) {
   );
 
   const startZoom = camera.position.z;
-  const targetZoom = 4.85;
+  const clampedZoom = THREE.MathUtils.clamp(targetZoom, 3.25, getMaxZoomOut());
   const startedAt = performance.now();
-  const duration = 760;
+
+  if (cityFocusFrame) cancelAnimationFrame(cityFocusFrame);
 
   // Start from a valid, unflipped pitch and smoothly remove any residual roll.
   globeGroup.rotation.x = startRotationX;
@@ -2655,12 +2678,13 @@ function focusCityOnGlobeMobile(city) {
 
   const animateFocus = (now) => {
     const progress = THREE.MathUtils.clamp((now - startedAt) / duration, 0, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
+    // Smoothstep keeps both the start and the end of the flight gentle.
+    const eased = progress * progress * (3 - 2 * progress);
 
     globeGroup.rotation.x = startRotationX + (targetRotationX - startRotationX) * eased;
     globeGroup.rotation.y = startRotationY + (targetRotationY - startRotationY) * eased;
     globeGroup.rotation.z = startRotationZ * (1 - eased);
-    camera.position.z = startZoom + (targetZoom - startZoom) * eased;
+    camera.position.z = startZoom + (clampedZoom - startZoom) * eased;
     state.labelsDirty = true;
     state.sceneDirty = true;
 
@@ -2682,6 +2706,29 @@ function focusCityOnGlobeMobile(city) {
   };
 
   cityFocusFrame = requestAnimationFrame(animateFocus);
+}
+
+function focusCityOnGlobeMobile(city) {
+  if (!city) return;
+  focusGlobeOnPoint(city.lat, city.lon, 4.85, { duration: 850 });
+}
+
+// Frames both ends of a route leg: the camera turns to the middle of the arc and
+// zooms out just enough to keep origin and destination on screen.
+function focusGlobeOnRoute(origin, destination, { duration = 1100 } = {}) {
+  if (!origin || !destination) return;
+  const start = cityToVector3(origin, 1).normalize();
+  const end = cityToVector3(destination, 1).normalize();
+  const midpoint = start.clone().add(end);
+  if (midpoint.lengthSq() < 1e-8) midpoint.copy(start);
+  midpoint.normalize();
+  const lat = Math.asin(THREE.MathUtils.clamp(midpoint.y, -1, 1)) * 180 / Math.PI;
+  const lon = Math.atan2(-midpoint.z, midpoint.x) * 180 / Math.PI;
+  const angle = start.angleTo(end);
+  // Short hops stay close, intercontinental legs pull back so the whole arc and
+  // both cities stay comfortably on screen.
+  const zoom = THREE.MathUtils.clamp(3.9 + angle * 2.3, 3.9, 7.1);
+  focusGlobeOnPoint(lat, lon, zoom, { duration });
 }
 
 function showSearchResults(query) {
@@ -2863,8 +2910,9 @@ function handlePointerMove(event) {
 function handleCanvasPointerDown(event) {
   if (state.activeModal) return;
 
-  // A deliberate new touch drag may interrupt the mobile search animation.
-  if (isMobileUiActive() && state.isFocusingCity) {
+  // Any deliberate drag interrupts an automatic camera flight (search result,
+  // surprise route leg) instead of fighting it.
+  if (state.isFocusingCity) {
     if (cityFocusFrame) cancelAnimationFrame(cityFocusFrame);
     cityFocusFrame = 0;
     state.isFocusingCity = false;
