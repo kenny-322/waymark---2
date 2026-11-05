@@ -3,11 +3,59 @@ import { CITY_DATA } from "./city-data.js";
 import { makePairKey, TRANSPORT_CONNECTIONS, TRANSPORT_DEFINITIONS } from "./transport-data.js";
 import { createCountryBoundaryOverlay } from "./country-overlay.js";
 import { createCityExplorer } from "./city-explorer.js";
+import { applyI18n, getLanguage, setLanguage, startI18nObserver } from "./i18n.js";
+
+// ---------------------------------------------------------------- settings
+const SETTINGS_KEY = "waymarkSettings";
+const settings = (() => {
+  try {
+    return { theme: "system", language: "ru", ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+  } catch {
+    return { theme: "system", language: "ru" };
+  }
+})();
+const systemDarkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+function resolveTheme() {
+  return settings.theme === "system" ? (systemDarkQuery.matches ? "dark" : "light") : settings.theme;
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = resolveTheme();
+  document.documentElement.dataset.themePreference = settings.theme;
+  document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+    const active = button.dataset.themeChoice === settings.theme;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function applyLanguage() {
+  setLanguage(settings.language);
+  applyI18n(document.body);
+  document.querySelectorAll("[data-lang-choice]").forEach((button) => {
+    const active = button.dataset.langChoice === settings.language;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function persistSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Settings simply stay for this session when storage is unavailable.
+  }
+}
+
+applyTheme();
+applyLanguage();
+startI18nObserver();
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.51";
+export const WAYMARK_VERSION = "1.52";
 document.documentElement.dataset.version = WAYMARK_VERSION;
-console.info(`WAY●MARK ${WAYMARK_VERSION} — маршрут по городу и обновлённый глобус`);
+console.info(`WAY●MARK ${WAYMARK_VERSION} — настройки, темы, языки и классы мест`);
 
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
@@ -422,7 +470,8 @@ const countryOverlay = createCountryBoundaryOverlay({
   globeGroup,
   camera,
   labelRoot: countryLabelsRoot,
-  radius: GLOBE_RADIUS
+  radius: GLOBE_RADIUS,
+  getLanguage: () => getLanguage()
 });
 // Load low-resolution country borders separately; failures must not affect the globe.
 countryOverlay.load().then(() => {
@@ -473,6 +522,23 @@ Promise.all([
     cloudMaterial.color.set(0xffffff);
     cloudMaterial.opacity = CLOUD_OPACITY;
     cloudMaterial.needsUpdate = true;
+  }
+
+  // Progressive upgrade: the 2K map is already visible, and a 4K texture replaces
+  // it as soon as it downloads, without delaying the first frame.
+  if (blueMarbleMap) {
+    loadTexture("https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg", THREE.SRGBColorSpace)
+      .then((detailedMap) => {
+        if (!detailedMap) return;
+        detailedMap.anisotropy = maxAnisotropy;
+        detailedMap.wrapS = THREE.RepeatWrapping;
+        detailedMap.wrapT = THREE.ClampToEdgeWrapping;
+        detailedMap.colorSpace = THREE.SRGBColorSpace;
+        detailedMap.needsUpdate = true;
+        earthMaterial.map = detailedMap;
+        earthMaterial.needsUpdate = true;
+        state.sceneDirty = true;
+      });
   }
 }).catch((error) => {
   console.warn("WAY●MARK: texture loading had a problem; continuing with fallback materials.", error);
@@ -3181,6 +3247,53 @@ navButtons.forEach((button) => {
 });
 
 surpriseButton?.addEventListener("click", openSurpriseModal);
+
+// ------------------------------------------------------------- settings UI
+const settingsModal = document.getElementById("settings-modal");
+
+function openSettings() {
+  if (!settingsModal) return;
+  applyTheme();
+  applyLanguage();
+  settingsModal.classList.remove("hidden");
+}
+
+function closeSettings() {
+  settingsModal?.classList.add("hidden");
+}
+
+document.getElementById("settings-button")?.addEventListener("click", openSettings);
+document.getElementById("city-settings-button")?.addEventListener("click", openSettings);
+document.getElementById("settings-close")?.addEventListener("click", closeSettings);
+settingsModal?.addEventListener("click", (event) => {
+  if (event.target === settingsModal) closeSettings();
+});
+document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+  button.addEventListener("click", () => {
+    settings.theme = button.dataset.themeChoice || "system";
+    persistSettings();
+    applyTheme();
+    state.sceneDirty = true;
+  });
+});
+document.querySelectorAll("[data-lang-choice]").forEach((button) => {
+  button.addEventListener("click", () => {
+    settings.language = button.dataset.langChoice === "en" ? "en" : "ru";
+    persistSettings();
+    applyLanguage();
+    countryOverlay.refreshLabels?.();
+    state.labelsDirty = true;
+    state.sceneDirty = true;
+  });
+});
+systemDarkQuery.addEventListener?.("change", () => {
+  if (settings.theme === "system") applyTheme();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && settingsModal && !settingsModal.classList.contains("hidden")) {
+    closeSettings();
+  }
+});
 
 document.getElementById("brandButton").addEventListener("click", () => {
   setMobileMenuOpen(false);

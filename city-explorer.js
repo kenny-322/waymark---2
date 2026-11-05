@@ -22,7 +22,7 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter"
 ];
-const MAX_DISPLAYED_PLACES = 180;
+const MAX_DISPLAYED_PLACES = 240;
 const DEFAULT_RADIUS_METERS = 7000;
 const CITY_OVERVIEW_RADIUS_METERS = 25000;
 const BUILDING_EXTRUSION_LAYER_ID = "waymark-3d-buildings";
@@ -38,6 +38,10 @@ const CATEGORY_META = {
   park: { label: "Парк", icon: "🌳" },
   hotel: { label: "Отель", icon: "🏨" },
   transport: { label: "Транспорт", icon: "🚇" },
+  shop: { label: "Магазин", icon: "🛍️" },
+  office: { label: "Офис", icon: "🏢" },
+  government: { label: "Госучреждение", icon: "🏛️" },
+  service: { label: "Услуги", icon: "🧾" },
   other: { label: "Место", icon: "📍" }
 };
 
@@ -115,6 +119,11 @@ function categoryFromTags(tags = {}) {
   if (tags.historic) return "attraction";
   if (["theatre", "arts_centre", "planetarium", "place_of_worship"].includes(tags.amenity)) return "attraction";
   if (tags.public_transport || tags.railway === "station" || tags.railway === "subway_entrance" || tags.amenity === "bus_station") return "transport";
+  if (tags.shop) return "shop";
+  if (tags.office === "government" || tags.amenity === "townhall") return "government";
+  if (tags.office) return "office";
+  if (["police", "courthouse", "embassy", "post_office", "military", "fire_station"].includes(tags.amenity)) return "government";
+  if (["bank", "atm", "pharmacy", "hospital", "clinic", "doctors", "dentist", "school", "kindergarten", "university", "college", "library", "fuel", "parking", "marketplace", "veterinary", "recycling"].includes(tags.amenity)) return "service";
   return "other";
 }
 
@@ -169,7 +178,7 @@ function distanceApproxMeters(a, b) {
 }
 
 function choosePlacesForMap(places) {
-  const quotas = { attraction: 60, museum: 26, viewpoint: 12, park: 26, restaurant: 16, cafe: 12, hotel: 8, transport: 8 };
+  const quotas = { attraction: 60, museum: 26, viewpoint: 12, park: 26, restaurant: 16, cafe: 12, hotel: 8, transport: 8, shop: 36, service: 18, government: 10, office: 14 };
   const selected = [];
   const selectedIds = new Set();
   const byCategory = new Map();
@@ -198,16 +207,6 @@ function choosePlacesForMap(places) {
   return selected;
 }
 
-function buildFallbackAttractions(city) {
-  return (Array.isArray(city.attractions) ? city.attractions : []).map((item, index) => ({
-    id: `catalog-${city.id}-${index + 1}`,
-    name: String(item?.[0] || "Достопримечательность"),
-    category: "attraction",
-    description: String(item?.[1] || ""),
-    sourceName: "Каталог WAY●MARK",
-    coordinatesUnavailable: true
-  }));
-}
 
 export function createCityExplorer({ onToast = () => {}, findCity = () => null } = {}) {
   const root = elementById("city-explorer");
@@ -256,7 +255,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   let activeCity = null;
   let requestSequence = 0;
   let places = [];
-  let fallbackAttractions = [];
   let markers = [];
   let routeStops = [];
   let currentPlace = null;
@@ -326,8 +324,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     routePanel.style.maxHeight = `${limited}px`;
     // The stop limit is derived from the panel height, so the list can never
     // grow past the bottom of the screen.
-    const chrome = 118;
-    const rows = Math.floor((limited - chrome) / 46);
+    const chrome = 120;
+    const rows = Math.floor((limited - chrome) / 50);
     maxRouteStops = Math.max(3, Math.min(rows, 10));
   }
 
@@ -345,10 +343,18 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
       number.className = "city-explorer-stop-number";
       number.textContent = String(index + 1);
 
+      const details = document.createElement("div");
+      details.className = "city-explorer-stop-details";
+
       const name = document.createElement("strong");
       name.className = "city-explorer-stop-name";
       name.textContent = place.name;
       name.title = place.name;
+
+      const category = document.createElement("span");
+      category.className = "city-explorer-stop-category";
+      category.textContent = categoryLabelRu(place.tags || {}, place.category);
+      details.append(name, category);
 
       const remove = document.createElement("button");
       remove.type = "button";
@@ -358,7 +364,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
       remove.setAttribute("aria-label", `Убрать ${place.name} из маршрута`);
       remove.addEventListener("click", () => removePlaceFromRoute(place.id));
 
-      row.append(number, name, remove);
+      row.append(number, details, remove);
       routeStopsElement.appendChild(row);
     });
 
@@ -570,34 +576,14 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     markers = [];
   }
 
-  function buildFallbackAttractionList(city) {
-    fallbackAttractions = buildFallbackAttractions(city);
-    const old = document.getElementById("city-explorer-catalog-fallback");
-    if (old) old.remove();
-    if (!fallbackAttractions.length) return;
-
-    const section = document.createElement("section");
-    section.id = "city-explorer-catalog-fallback";
-    section.className = "city-explorer-catalog-fallback";
-    const heading = document.createElement("strong");
-    heading.textContent = "Достопримечательности из каталога WAY●MARK";
-    const hint = document.createElement("p");
-    hint.textContent = "Эти места описаны в профиле города, но в картографических данных пока не нашлось их координат.";
-    const list = document.createElement("ul");
-    for (const place of fallbackAttractions) {
-      const item = document.createElement("li");
-      item.textContent = place.description ? `${place.name} — ${place.description}` : place.name;
-      list.appendChild(item);
-    }
-    section.append(heading, hint, list);
-    routePanel.appendChild(section);
-  }
-
   function cityPlacesQuery(city) {
     const lat = Number(city.lat).toFixed(6);
     const lon = Number(city.lon).toFixed(6);
     const radius = DEFAULT_RADIUS_METERS;
-    return `[out:json][timeout:20];\n(\n  nwr(around:${radius},${lat},${lon})[tourism~"attraction|museum|viewpoint|gallery|artwork|zoo|aquarium|theme_park"];\n  nwr(around:${radius},${lat},${lon})[historic];\n  nwr(around:${radius},${lat},${lon})[leisure~"park|garden|nature_reserve"];\n  nwr(around:${radius},${lat},${lon})[amenity~"theatre|arts_centre|planetarium|place_of_worship"];\n  nwr(around:${radius},${lat},${lon})[amenity~"restaurant|cafe|fast_food|food_court"];\n  nwr(around:${radius},${lat},${lon})[tourism~"hotel|hostel|guest_house"];\n  nwr(around:${radius},${lat},${lon})[public_transport=station];\n  nwr(around:${radius},${lat},${lon})[railway~"station|subway_entrance"];\n);\nout center tags 700 qt;`;
+    return `[out:json][timeout:20];\n(\n  nwr(around:${radius},${lat},${lon})[tourism~"attraction|museum|viewpoint|gallery|artwork|zoo|aquarium|theme_park"];\n  nwr(around:${radius},${lat},${lon})[historic];\n  nwr(around:${radius},${lat},${lon})[leisure~"park|garden|nature_reserve"];\n  nwr(around:${radius},${lat},${lon})[amenity~"theatre|arts_centre|planetarium|place_of_worship"];\n  nwr(around:${radius},${lat},${lon})[amenity~"restaurant|cafe|fast_food|food_court"];\n  nwr(around:${radius},${lat},${lon})[tourism~"hotel|hostel|guest_house"];\n  nwr(around:${radius},${lat},${lon})[public_transport=station];\n  nwr(around:${radius},${lat},${lon})[railway~"station|subway_entrance"];\n  nwr(around:1500,${lat},${lon})[shop];
+  nwr(around:2000,${lat},${lon})[office];
+  nwr(around:2000,${lat},${lon})[amenity~"bank|atm|post_office|police|townhall|library|pharmacy|hospital|clinic|school|kindergarten|university|fuel|parking|marketplace|courthouse|embassy|fire_station"];
+);\nout center tags 1000 qt;`;
   }
 
   async function fetchPlacesFromOverpass(city, requestId) {
@@ -625,10 +611,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         places = choosePlacesForMap(ranked);
         if (!places.length) {
           setStatus("Для этого района пока не нашлись подписанные места.");
-          buildFallbackAttractionList(city);
         } else {
-          const old = document.getElementById("city-explorer-catalog-fallback");
-          if (old) old.remove();
           setStatus(`${places.length} мест на карте · OpenStreetMap`);
         }
         addMarkersForPlaces();
@@ -644,8 +627,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
 
     if (requestId !== requestSequence || activeCity?.id !== city.id) return;
     places = [];
-    setStatus("Не удалось загрузить места — карта работает отдельно от каталога.");
-    buildFallbackAttractionList(city);
+    setStatus("Не удалось загрузить места. Попробуйте позже.");
     addMarkersForPlaces();
     renderRouteStops();
     refreshAboutModalIfOpen();
@@ -1228,21 +1210,31 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     searchResults.replaceChildren();
   }
 
-  function renderSearchResults(query) {
+  let searchTimer = 0;
+  let searchSequence = 0;
+  let searchLoading = false;
+
+  function searchMatches(query) {
     const normalized = String(query || "").trim().toLocaleLowerCase("ru-RU");
-    if (!normalized) {
-      hideSearchResults();
-      return;
-    }
-    const matches = places
+    if (!normalized) return [];
+    return places
       .filter((place) => {
         const haystack = [place.name, place.address, CATEGORY_META[place.category]?.label]
           .filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
         return haystack.includes(normalized);
       })
       .slice(0, 8);
+  }
 
-    if (!matches.length) {
+  function renderSearchResults(query, { loading = searchLoading } = {}) {
+    const trimmed = String(query || "").trim();
+    if (!trimmed) {
+      hideSearchResults();
+      return;
+    }
+    const matches = searchMatches(trimmed);
+
+    if (!matches.length && !loading) {
       searchResults.innerHTML = `<div class="city-search-empty">Ничего не найдено. Попробуйте другое название.</div>`;
       searchResults.classList.remove("hidden");
       return;
@@ -1253,10 +1245,10 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         <span class="city-search-result-icon" aria-hidden="true">${CATEGORY_META[place.category]?.icon || "📍"}</span>
         <span class="city-search-result-main">
           <strong>${escapeHtml(place.name)}</strong>
-          <span>${escapeHtml(CATEGORY_META[place.category]?.label || "Место")}</span>
+          <span>${escapeHtml(categoryLabelRu(place.tags || {}, place.category))}</span>
         </span>
       </button>
-    `).join("");
+    `).join("") + (loading ? `<div class="city-search-loading">Ищем места в этом городе…</div>` : "");
     searchResults.classList.remove("hidden");
 
     searchResults.querySelectorAll("[data-place-id]").forEach((button) => {
@@ -1266,12 +1258,72 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         hideSearchResults();
         showPlaceDetails(place);
         if (mapReady && map) {
-          map.flyTo({ center: [place.lon, place.lat], zoom: Math.max(map.getZoom(), 15), duration: 550, essential: true });
+          // A comfortable street-level view, slightly below the maximum zoom.
+          map.flyTo({ center: [place.lon, place.lat], zoom: 16.5, duration: 800, essential: true });
         }
       });
     });
   }
 
+  // OpenStreetMap name search limited to the selected city: this finds places
+  // that are not part of the preloaded map sample.
+  async function searchCityOnOverpass(query) {
+    const city = activeCity;
+    if (!city || !query) return;
+    const requestId = ++searchSequence;
+    // Quotes and backslashes would break the Overpass regex literal.
+    const escaped = query.replace(/["\\\r\n]/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const lat = Number(city.lat).toFixed(6);
+    const lon = Number(city.lon).toFixed(6);
+    const body = `[out:json][timeout:15];\n(\n  nwr(around:7000,${lat},${lon})[name~"${escaped}",i];\n  nwr(around:7000,${lat},${lon})["name:ru"~"${escaped}",i];\n);\nout center tags 30;`;
+    searchLoading = true;
+    renderSearchResults(query, { loading: true });
+
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+          body: `data=${encodeURIComponent(body)}`,
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`Overpass HTTP ${response.status}`);
+        const payload = await response.json();
+        if (requestId !== searchSequence || activeCity?.id !== city.id) return;
+        const center = { lat: city.lat, lon: city.lon };
+        const found = normalizeOverpassPlaces(payload)
+          .map((place) => ({ ...place, distanceMeters: distanceApproxMeters(place, center) }))
+          .filter((place) => !places.some((existing) => existing.id === place.id));
+        if (found.length && places.length < 600) {
+          places = places.concat(found);
+          addMarkersForPlaces();
+        }
+        searchLoading = false;
+        renderSearchResults(searchInput.value, { loading: false });
+        return;
+      } catch (error) {
+        // Try the next endpoint; the local results stay usable meanwhile.
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    if (requestId !== searchSequence) return;
+    searchLoading = false;
+    renderSearchResults(searchInput.value, { loading: false });
+  }
+
+  function scheduleRemoteSearch(query) {
+    window.clearTimeout(searchTimer);
+    const trimmed = String(query || "").trim();
+    if (trimmed.length < 3) return;
+    if (searchMatches(trimmed).length >= 3) return;
+    searchTimer = window.setTimeout(() => {
+      searchCityOnOverpass(trimmed);
+    }, 450);
+  }
   /* ------------------------------------------------------------- open/close */
 
   async function open(city) {
@@ -1291,8 +1343,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     selectedThemeId = null;
     searchInput.value = "";
     setFallbackMessage("");
-    const oldFallback = document.getElementById("city-explorer-catalog-fallback");
-    if (oldFallback) oldFallback.remove();
+
     renderRouteStops();
     titleElement.textContent = city.name;
     subtitleElement.textContent = `${city.country} · Векторная карта`;
@@ -1318,7 +1369,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
       console.warn("WAY●MARK: city map could not be initialized.", error);
       setStatus("Не удалось загрузить векторную карту. Проверьте подключение к интернету.");
       setFallbackMessage("Профиль города и его достопримечательности остаются в WAY●MARK, но для карты улиц требуется доступ к картографическому сервису.");
-      buildFallbackAttractionList(city);
     }
 
     requestAnimationFrame(layoutRoutePanel);
@@ -1362,7 +1412,10 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     if (currentPlace) addPlaceToRoute(currentPlace);
   });
 
-  searchInput.addEventListener("input", (event) => renderSearchResults(event.target.value));
+  searchInput.addEventListener("input", (event) => {
+    renderSearchResults(event.target.value);
+    scheduleRemoteSearch(event.target.value);
+  });
   searchInput.addEventListener("focus", () => {
     if (searchInput.value.trim()) renderSearchResults(searchInput.value);
   });

@@ -69,6 +69,10 @@
           <button class="nav-button" id="surprise-button" type="button">Удиви меня</button>
         </nav>
 
+        <button class="settings-button" id="settings-button" type="button" aria-label="Настройки" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+
         <div class="search-wrap">
           <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="11" cy="11" r="6.5"></circle>
@@ -86,7 +90,6 @@
       </header>
 
       <aside id="city-card" class="city-card glass-panel hidden" aria-live="polite"></aside>
-
 
       <section id="transport-panel" class="transport-panel glass-panel hidden" aria-label="Выбор транспорта">
         <div class="transport-header">
@@ -146,6 +149,9 @@
           <button id="city-about-button" class="city-top-button" type="button">О городе</button>
           <button id="city-routes-button" class="city-top-button" type="button">Мои маршруты</button>
         </nav>
+        <button class="city-settings-button" id="city-settings-button" type="button" aria-label="Настройки" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
       </header>
 
       <div class="city-explorer-view-toggle glass-panel" role="group" aria-label="Режим отображения карты">
@@ -216,7 +222,36 @@
       </div>
 
       <div id="city-explorer-fallback" class="city-explorer-fallback hidden" role="status"></div>
-    </section>  </main>
+    </section>
+
+    <div id="settings-modal" class="settings-modal hidden">
+      <div class="settings-panel glass-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="settings-header">
+          <div>
+            <div class="settings-kicker">WAY●MARK</div>
+            <h2 id="settings-title">Настройки</h2>
+          </div>
+          <button id="settings-close" class="settings-close" type="button" aria-label="Закрыть">×</button>
+        </header>
+        <p class="settings-lead">Оформление сайта и язык интерфейса.</p>
+        <section class="settings-section">
+          <h3>Тема</h3>
+          <div class="settings-options" id="theme-options">
+            <button type="button" data-theme-choice="system">Системная</button>
+            <button type="button" data-theme-choice="light">Светлая</button>
+            <button type="button" data-theme-choice="dark">Тёмная</button>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>Язык</h3>
+          <div class="settings-options" id="language-options">
+            <button type="button" data-lang-choice="ru">Русский</button>
+            <button type="button" data-lang-choice="en">English</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
 
   <script type="module" src="./script.js"></script>
 </body>

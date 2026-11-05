@@ -90,10 +90,13 @@ function getLabelPosition(feature) {
   };
 }
 
-function getRussianCountryName(properties) {
+function getCountryName(properties, language = "ru") {
   const englishName = String(properties.ADMIN || properties.NAME || properties.name || "").trim();
-  if (COUNTRY_ALIASES_RU[englishName]) return COUNTRY_ALIASES_RU[englishName];
   const alpha2 = String(properties.ISO_A2_EH || properties.ISO_A2 || "").toUpperCase();
+  if (language === "en") {
+    return englishName;
+  }
+  if (COUNTRY_ALIASES_RU[englishName]) return COUNTRY_ALIASES_RU[englishName];
   if (/^[A-Z]{2}$/.test(alpha2)) {
     try {
       const displayNames = new Intl.DisplayNames(["ru-RU", "ru"], { type: "region" });
@@ -106,7 +109,11 @@ function getRussianCountryName(properties) {
   return englishName;
 }
 
-export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelRoot, radius = 2 }) {
+function labelWidthFor(name) {
+  return Math.min(170, Math.max(40, name.length * 6.4 + 14));
+}
+
+export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelRoot, radius = 2, getLanguage = () => "ru" }) {
   const boundaryGroup = new THREE.Group();
   boundaryGroup.name = "WAYMARK country boundaries";
   boundaryGroup.renderOrder = 1.5;
@@ -156,7 +163,7 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
       const labelRank = Number(properties.LABELRANK ?? 6);
       if (labelRank > 6) continue;
       const position = getLabelPosition(feature);
-      const name = getRussianCountryName(properties);
+      const name = getCountryName(properties, getLanguage());
       if (!position || !name) continue;
 
       const element = document.createElement("span");
@@ -169,7 +176,8 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
         name,
         labelRank,
         localPosition: toSpherePoint(position.lon, position.lat, radius * 1.022),
-        width: Math.min(170, Math.max(40, name.length * 6.4 + 14)),
+        width: labelWidthFor(name),
+        properties,
         height: 22
       });
     }
@@ -291,5 +299,17 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
     return { opacity: countryOpacity, rects: accepted };
   }
 
-  return { load, update, get loaded() { return loaded; }, get error() { return loadError; } };
+  // Re-labels existing country names when the interface language changes.
+  function refreshLabels() {
+    const language = getLanguage();
+    for (const label of labels) {
+      const name = getCountryName(label.properties || {}, language);
+      if (!name) continue;
+      label.name = name;
+      label.width = labelWidthFor(name);
+      if (label.element.textContent !== name) label.element.textContent = name;
+    }
+  }
+
+  return { load, update, refreshLabels, get loaded() { return loaded; }, get error() { return loadError; } };
 }
