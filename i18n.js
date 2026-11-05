@@ -107,6 +107,7 @@ const EN = {
   "Часы работы": "Opening hours",
   "Телефон": "Phone",
   "Сайт": "Website",
+  "Источник": "Source",
   "Вход": "Admission",
   "Платный": "Paid",
   "Бесплатный": "Free",
@@ -334,6 +335,8 @@ const EN = {
 const PATTERNS = [
   [/^Найдено мест: (\d+)$/, (m) => `${m[1]} places found`],
   [/^(\d+) мест на карте · OpenStreetMap$/, (m) => `${m[1]} places on the map · OpenStreetMap`],
+  [/^(\d+) мест · база WAY●MARK$/, (m) => `${m[1]} places · WAY●MARK base`],
+  [/^(\d+) мест · OpenStreetMap \+ база WAY●MARK$/, (m) => `${m[1]} places · OpenStreetMap + WAY●MARK base`],
   [/^(.+) выбрана как точка отправления$/, (m) => `${m[1]} selected as the departure point`],
   [/^(.+) выбрана как направление$/, (m) => `${m[1]} selected as the destination`],
   [/^(.+) выбрана как следующая точка$/, (m) => `${m[1]} selected as the next stop`],

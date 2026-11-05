@@ -1,4 +1,4 @@
-/* WAY●MARK city explorer, v1.49.
+/* WAY●MARK city explorer, v1.56.
  * Trip-first city exploration: a map with a compact search, a growing route
  * panel and two sections — "О городе" and "Мои маршруты".
  * Place cards use structured map fields only: no house numbers, no postcodes,
@@ -27,6 +27,7 @@ const DEFAULT_RADIUS_METERS = 7000;
 const CITY_OVERVIEW_RADIUS_METERS = 25000;
 const BUILDING_EXTRUSION_LAYER_ID = "waymark-3d-buildings";
 const CITY_ROUTES_STORAGE_KEY = "waymarkCityRoutes";
+const LOCAL_PLACES_BASE = "./data/places/";
 const MAX_SAVED_ROUTES = 30;
 
 const CATEGORY_META = {
@@ -255,6 +256,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   let activeCity = null;
   let requestSequence = 0;
   let places = [];
+  let localPlaces = [];
+  let placesSource = "local";
   let markers = [];
   let routeStops = [];
   let currentPlace = null;
@@ -543,37 +546,80 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     }
   }
 
+  // The map is intentionally kept free of decorative POI pins. Places remain
+  // available through search and route planning, but no category icons are
+  // painted over the basemap.
   function addMarkersForPlaces() {
     clearMarkers();
-    if (!mapLibrary || !mapReady || !map) return;
-    for (const place of places) {
-      const meta = CATEGORY_META[place.category] || CATEGORY_META.other;
-      const element = document.createElement("button");
-      element.type = "button";
-      element.className = `city-map-place-marker category-${place.category}`;
-      element.title = `${place.name} — ${meta.label}`;
-      element.setAttribute("aria-label", `${place.name}. ${meta.label}`);
-      const icon = document.createElement("span");
-      icon.className = "city-map-place-marker-icon";
-      icon.textContent = meta.icon;
-      element.appendChild(icon);
-
-      const marker = new mapLibrary.Marker({ element, anchor: "bottom" })
-        .setLngLat([place.lon, place.lat])
-        .addTo(map);
-      markers.push({ place, marker, element });
-
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        showPlaceDetails(place);
-      });
-    }
-    updateMarkerSelectionClasses();
   }
 
   function clearMarkers() {
     for (const entry of markers) entry.marker.remove();
     markers = [];
+  }
+
+  // The offline base (Wikipedia / Wikidata) makes routes, cards and search work
+  // even when the live OpenStreetMap service is unavailable.
+  async function loadLocalPlaces(city, requestId) {
+    try {
+      const response = await fetch(`${LOCAL_PLACES_BASE}${encodeURIComponent(city.id)}.json`);
+      if (!response.ok) return false;
+      const payload = await response.json();
+      if (requestId !== requestSequence || activeCity?.id !== city.id) return false;
+      const center = { lat: city.lat, lon: city.lon };
+      const items = Array.isArray(payload?.places) ? payload.places : [];
+      localPlaces = items.map((item) => ({
+        id: String(item.id || `wd-${item.n}`),
+        name: String(item.n || "").trim(),
+        category: String(item.c || "attraction"),
+        lat: Number(item.lat),
+        lon: Number(item.lon),
+        description: String(item.d || "").trim(),
+        nameEn: String(item.ne || "").trim(),
+        tags: { wikidata: item.id, source: "wikidata" },
+        sourceName: "Wikipedia / Wikidata",
+        distanceMeters: distanceApproxMeters({ lat: Number(item.lat), lon: Number(item.lon) }, center)
+      })).filter((place) => place.name && Number.isFinite(place.lat) && Number.isFinite(place.lon));
+      if (!localPlaces.length) return false;
+
+      if (!places.length) {
+        places = choosePlacesForMap(localPlaces);
+        placesSource = "local";
+      } else {
+        places = choosePlacesForMap(mergePlaceLists(localPlaces, places));
+        placesSource = placesSource === "openstreetmap" ? "mixed" : placesSource;
+      }
+      if (mapReady) addMarkersForPlaces();
+      renderRouteStops();
+      updatePlacesStatus();
+      refreshAboutModalIfOpen();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function mergePlaceLists(extraPlaces, basePlaces) {
+    const merged = basePlaces.slice();
+    for (const place of extraPlaces) {
+      const name = place.name.toLocaleLowerCase("ru-RU");
+      const exists = merged.some((other) =>
+        other.name.toLocaleLowerCase("ru-RU") === name &&
+        distanceApproxMeters(other, place) < 160
+      );
+      if (!exists) merged.push(place);
+    }
+    return merged;
+  }
+
+  function updatePlacesStatus() {
+    if (!places.length) return;
+    const source = placesSource === "mixed"
+      ? "OpenStreetMap + база WAY●MARK"
+      : placesSource === "openstreetmap"
+        ? "OpenStreetMap"
+        : "база WAY●MARK";
+    setStatus(`${places.length} мест · ${source}`);
   }
 
   function cityPlacesQuery(city) {
@@ -608,11 +654,18 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
           ...place,
           distanceMeters: distanceApproxMeters(place, center)
         }));
-        places = choosePlacesForMap(ranked);
+        // Live OSM data is the richest source; the offline base fills the gaps.
+        const merged = localPlaces.length ? mergePlaceLists(localPlaces, ranked) : ranked;
+        places = choosePlacesForMap(merged);
+        placesSource = !ranked.length && localPlaces.length
+          ? "local"
+          : localPlaces.length
+            ? "mixed"
+            : "openstreetmap";
         if (!places.length) {
           setStatus("Для этого района пока не нашлись подписанные места.");
         } else {
-          setStatus(`${places.length} мест на карте · OpenStreetMap`);
+          updatePlacesStatus();
         }
         addMarkersForPlaces();
         renderRouteStops();
@@ -626,8 +679,15 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     }
 
     if (requestId !== requestSequence || activeCity?.id !== city.id) return;
-    places = [];
-    setStatus("Не удалось загрузить места. Попробуйте позже.");
+    if (localPlaces.length) {
+      // The offline base keeps routes, cards and search usable offline.
+      places = choosePlacesForMap(localPlaces);
+      placesSource = "local";
+      updatePlacesStatus();
+    } else {
+      places = [];
+      setStatus("Не удалось загрузить места. Попробуйте позже.");
+    }
     addMarkersForPlaces();
     renderRouteStops();
     refreshAboutModalIfOpen();
@@ -727,6 +787,9 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     };
     const note = catalogNoteFor(place);
     if (note) rows.push({ label: "О месте", text: note });
+    if (tags.source === "wikidata") {
+      rows.push({ label: "Источник", text: "Wikipedia / Wikidata" });
+    }
     push("Часы работы", tags.opening_hours);
     push("Телефон", tags.phone || tags["contact:phone"]);
     push("Сайт", tags.website || tags["contact:website"] || place?.website);
@@ -840,6 +903,24 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     return CATEGORY_META[category]?.label || "Место";
   }
 
+  function isFeatureAtClickLocation(feature, event) {
+    const sourceLayer = String(feature?.sourceLayer || "").toLowerCase();
+    const geometry = feature?.geometry;
+    // Building footprints are genuine selectable areas. POI labels, however,
+    // must be selected near their actual point, not anywhere in a large hit box.
+    if (sourceLayer === "building") return geometry?.type === "Polygon" || geometry?.type === "MultiPolygon";
+    if (geometry?.type !== "Point" || !Array.isArray(geometry.coordinates)) return false;
+    const [lon, lat] = geometry.coordinates;
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
+    const toRad = (value) => value * Math.PI / 180;
+    const dLat = toRad(lat - event.lngLat.lat);
+    const dLon = toRad(lon - event.lngLat.lng);
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(event.lngLat.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon / 2) ** 2;
+    const distance = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return distance <= 55;
+  }
+
   function handleVectorFeatureClick(event) {
     if (!map || !mapReady || !event?.point) return;
     // A click starts a new selection. Empty map clicks close the previous place
@@ -851,7 +932,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     const feature = features.find((item) => {
       const layer = map.getLayer(item.layer?.id);
       const sourceLayer = String(item.sourceLayer || layer?.["source-layer"] || "");
-      return isClickableMapFeature(sourceLayer, item.properties || {});
+      return isClickableMapFeature(sourceLayer, item.properties || {})
+        && isFeatureAtClickLocation(item, event);
     });
     if (!feature) return;
 
@@ -877,6 +959,22 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   }
 
   /* ------------------------------------------------------------ map setup */
+
+  function hideBasemapPoiIcons() {
+    if (!map) return;
+    const layers = map.getStyle()?.layers || [];
+    for (const layer of layers) {
+      if (layer.type !== "symbol" || !layer.layout?.["icon-image"]) continue;
+      // Hide symbol artwork only. Text labels (street/place names) remain.
+      try {
+        if (map.getPaintProperty(layer.id, "icon-opacity") !== 0) {
+          map.setPaintProperty(layer.id, "icon-opacity", 0);
+        }
+      } catch (error) {
+        console.debug("WAY●MARK: could not hide map symbol", layer.id, error);
+      }
+    }
+  }
 
   function setViewMode(mode, { animate = true } = {}) {
     if (!map || !mapReady) return;
@@ -1007,6 +1105,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
 
       map.once("load", () => {
         mapReady = true;
+        hideBasemapPoiIcons();
         add3DBuildingsLayer();
         map.addSource("waymark-city-route", { type: "geojson", data: emptyFeatureCollection() });
         map.addLayer({
@@ -1021,6 +1120,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
           const requestId = requestSequence;
           updateCityMinimumZoom(city);
           map.flyTo({ center: [city.lon, city.lat], zoom: Math.max(12.2, map.getMinZoom()), pitch: 0, bearing: 0, duration: 650, essential: true });
+          // The offline base may already be loaded before the map finishes.
+          if (places.length) addMarkersForPlaces();
           fetchPlacesFromOverpass(city, requestId);
         }
         map.resize();
@@ -1038,7 +1139,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         const clickable = features.some((feature) => {
           const layer = map.getLayer(feature.layer?.id);
           const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
-          return isClickableMapFeature(sourceLayer, feature.properties || {});
+          return isClickableMapFeature(sourceLayer, feature.properties || {})
+            && isFeatureAtClickLocation(feature, event);
         });
         map.getCanvas().style.cursor = clickable ? "pointer" : "";
       });
@@ -1337,6 +1439,9 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     isOpen = true;
     requestSequence += 1;
     places = [];
+    localPlaces = [];
+    placesSource = "local";
+    clearMarkers();
     selectedThemeId = null;
     searchInput.value = "";
     setFallbackMessage("");
@@ -1349,6 +1454,9 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     setStatus("Подключаем карту и загружаем места…");
     routeReturnButton.classList.add("hidden");
 
+    // Start with the offline base: it loads instantly and does not depend on OSM.
+    loadLocalPlaces(city, requestSequence);
+
     try {
       await ensureMap();
       if (!isOpen || activeCity?.id !== city.id) return;
@@ -1357,7 +1465,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         updateCityMinimumZoom(city);
         setViewMode("2d", { animate: false });
         map.flyTo({ center: [city.lon, city.lat], zoom: Math.max(12.2, map.getMinZoom()), pitch: 0, bearing: 0, duration: 850, essential: true });
-        clearMarkers();
+        // Keep the offline base on screen while OpenStreetMap is still loading.
+        if (places.length) addMarkersForPlaces();
         if (map.getSource("waymark-city-route")) map.getSource("waymark-city-route").setData(emptyFeatureCollection());
         const requestId = requestSequence;
         fetchPlacesFromOverpass(city, requestId);

@@ -53,9 +53,9 @@ applyLanguage();
 startI18nObserver();
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.54";
+export const WAYMARK_VERSION = "1.56";
 document.documentElement.dataset.version = WAYMARK_VERSION;
-console.info(`WAY●MARK ${WAYMARK_VERSION} — плавная загрузка текстуры глобуса`);
+console.info(`WAY●MARK ${WAYMARK_VERSION} — офлайн-база мест, маршруты и поиск`);
 
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
