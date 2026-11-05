@@ -175,11 +175,18 @@
         <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Введите название места для поиска</div>
       </section>
 
-      <aside class="city-explorer-route city-explorer-route-state" aria-hidden="true">
-        <span id="city-explorer-stop-count">0</span>
-        <ol id="city-explorer-route-stops"></ol>
-        <div id="city-explorer-route-empty"></div>
-        <button id="city-explorer-clear-route" type="button" disabled>Очистить маршрут</button>
+      <aside id="city-explorer-route" class="city-explorer-route city-explorer-route-state" aria-label="Маршрут по городу">
+        <div class="city-explorer-route-head">
+          <div>
+            <div class="city-explorer-kicker">МОИ МЕСТА</div>
+            <h3>Маршрут по городу</h3>
+          </div>
+          <span id="city-explorer-stop-count" class="city-explorer-stop-count">0</span>
+        </div>
+        <p class="city-explorer-route-hint">Добавьте место из карточки на карте или соберите маршрут между двумя точками.</p>
+        <ol id="city-explorer-route-stops" class="city-explorer-route-stops"></ol>
+        <div id="city-explorer-route-empty" class="city-explorer-route-empty">Пока пусто. Откройте место на карте и нажмите «Добавить в маршрут».</div>
+        <button id="city-explorer-clear-route" class="city-explorer-clear-route" type="button" disabled>Очистить маршрут</button>
       </aside>
       <aside id="city-place-details" class="city-place-details glass-panel hidden" aria-live="polite" aria-label="Информация о месте">
         <button id="city-place-details-close" class="city-place-details-close" type="button" aria-label="Закрыть информацию">×</button>
@@ -187,6 +194,7 @@
         <h3 id="city-place-details-title">Выбранное место</h3>
         <p id="city-place-details-description" class="city-place-details-description"></p>
         <div id="city-place-details-meta" class="city-place-details-meta"></div>
+        <button id="city-place-details-add" class="city-place-details-add" type="button">Добавить в маршрут</button>
         <button id="city-place-details-route" class="city-place-details-route" type="button">Составить маршрут</button>
       </aside>
       <div id="city-explorer-fallback" class="city-explorer-fallback hidden" role="status"></div>

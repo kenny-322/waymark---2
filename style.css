@@ -3102,3 +3102,64 @@ html[data-device="desktop"] .modal-section h3 { margin-bottom: 8px; }
 html[data-device="desktop"] .attraction-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 html[data-device="desktop"] .attraction-name { padding: 8px 9px 6px; font-size: 11px; }
 html[data-device="desktop"] .attraction-note { margin-top: 2px; padding: 0 9px 8px; font-size: 9px; line-height: 1.35; }
+
+/* ============================================================
+   WAY●MARK 1.48 — route list in the city explorer + card actions
+   ============================================================ */
+html[data-device="desktop"] .city-explorer-route.city-explorer-route-state {
+  display: block !important;
+  top: auto;
+  right: auto;
+  bottom: 16px;
+  left: 16px;
+  width: min(300px, calc(100vw - 32px));
+  max-height: min(38vh, 340px);
+  padding: 14px;
+  border-radius: 16px;
+}
+
+.city-explorer-route .city-explorer-route-head h3 {
+  margin: 3px 0 0;
+  font-size: 16px;
+  letter-spacing: -.03em;
+}
+
+.city-explorer-route .city-explorer-route-hint {
+  margin: 8px 0 10px;
+}
+
+.city-explorer-route .city-explorer-route-empty {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.city-place-details-add {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 15px;
+  border-radius: 10px;
+  color: #fff;
+  background: #286bd7;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.city-place-details-add:hover:not(:disabled) { background: #1f5fc5; }
+
+.city-place-details-add:disabled {
+  color: #47755d;
+  background: #e7f4eb;
+  cursor: default;
+}
+
+html[data-device="desktop"] .city-place-details-route {
+  margin-top: 8px;
+  color: #2d5f9e;
+  background: #eaf2ff;
+}
+
+html[data-device="desktop"] .city-place-details-route:hover { background: #dbe9ff; }
+
+.city-place-details-description.hidden { display: none !important; }

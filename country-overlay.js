@@ -219,7 +219,7 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
         label.element.style.opacity = "0";
         label.element.style.visibility = "hidden";
       }
-      return;
+      return { opacity: 0, rects: [] };
     }
 
     globeGroup.updateMatrixWorld();
@@ -266,6 +266,10 @@ export function createCountryBoundaryOverlay({ THREE, globeGroup, camera, labelR
       label.element.style.opacity = keep ? String(alphaGrid) : "0";
       label.element.style.visibility = keep ? "visible" : "hidden";
     }
+
+    // The globe label layer places city names after this call and uses these
+    // rectangles as occupied space, so a city pill never covers a country name.
+    return { opacity: countryOpacity, rects: accepted };
   }
 
   return { load, update, get loaded() { return loaded; }, get error() { return loadError; } };

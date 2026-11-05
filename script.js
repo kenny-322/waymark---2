@@ -4,6 +4,11 @@ import { makePairKey, TRANSPORT_CONNECTIONS, TRANSPORT_DEFINITIONS } from "./tra
 import { createCountryBoundaryOverlay } from "./country-overlay.js";
 import { createCityExplorer } from "./city-explorer.js";
 
+// Build marker: makes it obvious in the console which version the browser opened.
+export const WAYMARK_VERSION = "1.48";
+document.documentElement.dataset.version = WAYMARK_VERSION;
+console.info(`WAY●MARK ${WAYMARK_VERSION} — карточки мест, клики по карте, подписи стран и городов`);
+
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
 const startupLoader = document.getElementById("startup-loader");
@@ -2183,6 +2188,10 @@ function getGridKeys(rect, cellSize = 120) {
 function updateCityLabels() {
   globeGroup.updateMatrixWorld();
 
+  // Country names are placed first; their accepted rectangles become occupied
+  // space for city labels, so the two label layers never overlap each other.
+  const countryLayer = countryOverlay.update() || { opacity: 0, rects: [] };
+
   const requiredCityIds = getRequiredCityIds();
   const cameraZ = camera.position.z;
   const zoomTier = cameraZ >= 5.75 ? 1 : cameraZ >= 5.05 ? 2 : 3;
@@ -2297,6 +2306,24 @@ function updateCityLabels() {
     placed.push(rect);
   };
 
+  // Country names that are actually visible keep their space.
+  if (countryLayer.opacity > 0.02) {
+    for (const rect of countryLayer.rects || []) occupy(rect);
+  }
+
+  // Floating UI panels also occupy space: a city label must not slide under the
+  // bottom bar, the transport panel or an open city card.
+  const reserveUiRegion = (element, pad = 6) => {
+    if (!element || element.classList.contains("hidden")) return;
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return;
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+    occupy({ left: rect.left - pad, right: rect.right + pad, top: rect.top - pad, bottom: rect.bottom + pad });
+  };
+  reserveUiRegion(document.querySelector(".bottom-panel"));
+  reserveUiRegion(transportPanel);
+  reserveUiRegion(cityCard);
+
   for (const candidate of candidates) {
     const { entry, x, y, labelWidth, labelHeight, frontFacing, inScreen, zoomAllows } = candidate;
     const baseVisible = frontFacing && inScreen && zoomAllows;
@@ -2337,7 +2364,6 @@ function updateCityLabels() {
     if (chosen) occupy(chosen);
   }
 
-  countryOverlay.update();
   positionCityCard();
   state.labelsDirty = false;
 }

@@ -1,9 +1,18 @@
-/* WAY●MARK city explorer, v1.34.
+/* WAY●MARK city explorer, v1.48.
  * One generic map workflow for every city in CITY_DATA. Street basemaps are
  * vector tiles; named places are loaded on demand from OpenStreetMap Overpass.
- * This module intentionally keeps city routes as ordered stops for now. A real
- * road/transit router can later consume the same stop coordinates and mode.
+ * Place cards use structured map fields only: no house numbers, no postcodes,
+ * no coordinate tails and no invented descriptions.
  */
+
+import {
+  cleanPlaceDescription,
+  composeAddress,
+  descriptionFromProperties,
+  featureDisplayName,
+  formatNominatimAddress,
+  isClickableMapFeature
+} from "./place-info.js";
 
 const MAPLIBRE_VERSION = "6.14.0";
 const MAPLIBRE_MODULE_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.mjs`;
@@ -114,7 +123,7 @@ function normalizeOverpassPlaces(payload) {
       category,
       lat: coordinates.lat,
       lon: coordinates.lon,
-      description: String(tags.description || tags["description:ru"] || "").trim(),
+      description: String(tags["description:ru"] || tags.description || tags["description:en"] || "").trim(),
       address: [tags["addr:street"], tags["addr:housenumber"]].filter(Boolean).join(", "),
       website: tags.website || tags["contact:website"] || "",
       sourceName: "OpenStreetMap",
@@ -192,6 +201,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   const placeDetailsCategory = elementById("city-place-details-category");
   const placeDetailsDescription = elementById("city-place-details-description");
   const placeDetailsMeta = elementById("city-place-details-meta");
+  const placeDetailsAddButton = elementById("city-place-details-add");
   const placeDetailsRouteButton = elementById("city-place-details-route");
   const placeDetailsCloseButton = elementById("city-place-details-close");
 
@@ -207,7 +217,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   let fallbackAttractions = [];
   let markers = [];
   let routeStops = [];
-  let activePopup = null;
+  let currentPlace = null;
   let isOpen = false;
   let mapViewMode = "2d";
   let minZoomCityId = null;
@@ -303,6 +313,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
 
     refreshRouteLine();
     updateMarkerSelectionClasses();
+    updatePlaceRouteButton();
   }
 
   function moveRouteStop(index, delta) {
@@ -320,87 +331,55 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   function clearRoute() {
     routeStops = [];
     renderRouteStops();
-    if (activePopup) activePopup.remove();
   }
 
   function addPlaceToRoute(place) {
+    if (!place?.id) return;
     if (routeStops.some((item) => item.id === place.id)) {
-      onToast(`${place.name} уже в городском маршруте`);
+      onToast(`${place.name} уже в маршруте`);
+      updatePlaceRouteButton();
       return;
     }
     routeStops.push(place);
     renderRouteStops();
-    onToast(`${place.name} добавлено в городской маршрут`);
-    if (activePopup) {
-      const action = activePopup.getElement()?.querySelector("[data-add-place]");
-      if (action) {
-        action.textContent = "Добавлено в маршрут ✓";
-        action.disabled = true;
-      }
-    }
+    onToast(`${place.name} добавлено в маршрут`);
+    updatePlaceRouteButton();
+    // Show the route list right away, so the added place is visible.
+    selectCityTool("route", { focus: false });
   }
 
   function updateMarkerSelectionClasses() {
     const selected = new Set(routeStops.map((place) => place.id));
     for (const entry of markers) {
       entry.element.classList.toggle("in-city-route", selected.has(entry.place.id));
-      const button = entry.popupElement?.querySelector("[data-add-place]");
-      if (button) {
-        button.disabled = selected.has(entry.place.id);
-        button.textContent = selected.has(entry.place.id) ? "Уже в маршруте ✓" : "Добавить в маршрут";
-      }
     }
   }
 
-  // Keep addresses useful without house numbers, unit numbers, or numeric postal codes.
-  function cleanAddressPart(value) {
-    return String(value || "")
-      .trim()
-      .replace(/\s*,\s*\d+[\p{L}]?(?:[-/]\d+[\p{L}]?)?\s*$/u, "")
-      .replace(/\s+\d+[\p{L}]?(?:[-/]\d+[\p{L}]?)?\s*$/u, "")
-      .replace(/\s+\d{4,}\s*$/u, "")
-      .trim();
+  // Address comes from structured map fields only. House numbers, postcodes and
+  // coordinate tails never reach the card — see place-info.js for the rules.
+  function addressForPlace(place) {
+    const tags = place?.tags || {};
+    return composeAddress({
+      country: activeCity?.country || "",
+      region: activeCity?.region || "",
+      city: tags["addr:city"] || activeCity?.name || "",
+      district: tags["addr:suburb"] || tags["addr:district"] || tags["addr:neighbourhood"] || "",
+      street: tags["addr:street"] || tags.street || "",
+      fallbackCity: activeCity?.name || "",
+      fallbackCountry: activeCity?.country || ""
+    });
   }
 
-  function cleanPlaceDescription(value) {
-    const description = String(value || "").trim();
-    if (!description) return "";
-    // Some map records contain a generic disclaimer rather than useful information.
-    if (/в доступных картографических данных нет достаточно сведений|недостаточно сведений, чтобы надёжно уточнить его назначение|точное назначение не указано в картографических данных/i.test(description)) return "";
-    return description;
-  }
-
-  function formatPlaceAddress(address = {}, fallbackCity = "", fallbackCountry = "") {
-    const parts = [
-      address.country,
-      address.state || address.region || address.province,
-      address.city || address.town || address.village || address.municipality || fallbackCity,
-      address.city_district || address.suburb || address.district || address.neighbourhood,
-      address.road || address.pedestrian || address.residential || address.footway
-    ].filter(Boolean);
-    const unique = [];
-    for (const part of parts) {
-      const normalized = cleanAddressPart(part);
-      if (normalized && !unique.some((item) => item.toLocaleLowerCase("ru-RU") === normalized.toLocaleLowerCase("ru-RU"))) unique.push(normalized);
-    }
-    if (!unique.length && fallbackCity) unique.push(fallbackCity);
-    if (fallbackCountry && !unique.some((item) => item.toLocaleLowerCase("ru-RU") === fallbackCountry.toLocaleLowerCase("ru-RU"))) unique.unshift(fallbackCountry);
-    return unique.join(", ");
-  }
-
-  function getFallbackAddress(place, properties = {}) {
-    const city = activeCity?.name || activeCity?.name_en || "";
-    const country = activeCity?.country || "";
-    const street = properties["addr:street"] || properties.street || "";
-    const district = properties["addr:suburb"] || properties["addr:district"] || properties["addr:neighbourhood"] || "";
-    const streetAddress = street || place.address || "";
-    return [country, activeCity?.region || "", city, district, streetAddress]
-      .filter(Boolean).map(cleanAddressPart)
-      .filter(Boolean).filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index).join(", ");
+  function hasStreetLevelData(place) {
+    const tags = place?.tags || {};
+    return Boolean(
+      tags["addr:street"] || tags.street ||
+      tags["addr:suburb"] || tags["addr:district"] || tags["addr:neighbourhood"]
+    );
   }
 
   async function reverseGeocodeAddress(place) {
-    if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return "";
+    if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return null;
     const cacheKey = `${place.lat.toFixed(5)},${place.lon.toFixed(5)}`;
     if (reverseGeocodeCache.has(cacheKey)) return reverseGeocodeCache.get(cacheKey);
     // Respect the public Nominatim service's rate limit: serialize requests and
@@ -417,32 +396,43 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
         const response = await fetch(url.toString(), { signal: controller.signal, headers: { Accept: "application/json" } });
         if (!response.ok) throw new Error(`Reverse geocoding HTTP ${response.status}`);
         const data = await response.json();
-        const address = formatPlaceAddress(data.address || {}, activeCity?.name || "", activeCity?.country || "");
+        const address = formatNominatimAddress(data.address || {}, activeCity?.name || "", activeCity?.country || "");
         reverseGeocodeCache.set(cacheKey, address);
         return address;
       } catch (error) {
         // The map must remain usable when a public geocoder is unavailable.
-        return "";
+        return null;
       } finally {
         window.clearTimeout(timeout);
       }
     });
-    reverseGeocodeQueue = task.catch(() => "");
+    reverseGeocodeQueue = task.catch(() => null);
     return task;
   }
 
-  function renderPlaceAddress(addressText) {
+  function renderPlaceAddress(address) {
     placeDetailsMeta.replaceChildren();
-    if (!addressText) return;
+    const hasAddress = Boolean(address?.text) && Boolean(address?.hasDetail);
+    // No empty "Адрес" block and no gap above the buttons when the map data has
+    // only a country and a city.
+    placeDetailsMeta.classList.toggle("hidden", !hasAddress);
+    if (!hasAddress) return;
     const row = document.createElement("div");
     row.className = "city-place-details-row place-address";
     const label = document.createElement("span");
     label.className = "place-address-label";
     label.textContent = "Адрес";
     const value = document.createElement("strong");
-    value.textContent = addressText;
+    value.textContent = address.text;
     row.append(label, value);
     placeDetailsMeta.appendChild(row);
+  }
+
+  function updatePlaceRouteButton() {
+    const inRoute = Boolean(currentPlace?.id) && routeStops.some((item) => item.id === currentPlace.id);
+    if (!placeDetailsAddButton) return;
+    placeDetailsAddButton.disabled = inRoute;
+    placeDetailsAddButton.textContent = inRoute ? "Уже в маршруте ✓" : "Добавить в маршрут";
   }
 
   function showPlaceDetails(place, extra = {}) {
@@ -450,102 +440,27 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (!place || document.documentElement.dataset.device !== "desktop") return;
     selectedPlaceRequestId += 1;
     const requestId = selectedPlaceRequestId;
-    if (activePopup) activePopup.remove();
-    activePopup = null;
+    currentPlace = place;
     placeDetailsTitle.textContent = place.name || "Место на карте";
     placeDetailsCategory.textContent = extra.categoryLabel || CATEGORY_META[place.category]?.label || "Место";
-    const description = cleanPlaceDescription(place.description) || cleanPlaceDescription(extra.description) || cleanPlaceDescription(descriptionForPlace(place.category, place.name, place.tags || {}));
+    // Only real descriptive text from map data; nothing is generated to fill the card.
+    const description = cleanPlaceDescription(place.description) || cleanPlaceDescription(extra.description);
     placeDetailsDescription.textContent = description;
-    const initialAddress = getFallbackAddress(place, place.tags || {}) || place.address || "";
-    renderPlaceAddress(initialAddress);
+    placeDetailsDescription.classList.toggle("hidden", !description);
+    renderPlaceAddress(addressForPlace(place));
     placeDetailsPanel.classList.remove("hidden");
     placeDetailsPanel.classList.add("visible");
     placeDetailsRouteButton.dataset.placeName = place.name || "";
+    updatePlaceRouteButton();
 
-    // If vector tiles do not contain an address, ask the public reverse geocoder
-    // for the clicked coordinates. The city/country fallback is shown immediately.
-    const hasStreetAddress = Boolean(place.tags?.["addr:street"] || place.tags?.street || place.tags?.["addr:housenumber"] || place.tags?.housenumber);
-    if (!hasStreetAddress && Number.isFinite(place.lat) && Number.isFinite(place.lon)) {
+    // If the map object has no street or district, ask the public reverse geocoder
+    // for the clicked coordinates. Country + city alone is not shown as an address.
+    if (!hasStreetLevelData(place) && Number.isFinite(place.lat) && Number.isFinite(place.lon)) {
       reverseGeocodeAddress(place).then((resolvedAddress) => {
         if (requestId !== selectedPlaceRequestId || placeDetailsPanel.classList.contains("hidden")) return;
-        if (resolvedAddress) renderPlaceAddress(resolvedAddress);
+        if (resolvedAddress?.hasDetail) renderPlaceAddress(resolvedAddress);
       });
     }
-  }
-
-  function descriptionForPlace(category, name = "", properties = {}) {
-    const props = properties || {};
-    const normalized = String(category || "").toLowerCase();
-    const tag = (...keys) => keys.map((key) => props[key]).find((value) => typeof value === "string" && value.trim())?.trim().toLowerCase() || "";
-    const amenity = tag("amenity");
-    const shop = tag("shop");
-    const office = tag("office");
-    const tourism = tag("tourism");
-    const leisure = tag("leisure");
-    const healthcare = tag("healthcare");
-    const craft = tag("craft");
-    const building = tag("building");
-    const typeLabels = {
-      parcel_locker: "Постамат для самостоятельного получения и отправки посылок.",
-      post_office: "Почтовое отделение: сюда можно прийти для отправки и получения почты и посылок.",
-      marketplace: "Пункт выдачи заказов: здесь обычно получают и оформляют возврат интернет-заказов.",
-      convenience: "Небольшой магазин товаров повседневного спроса.",
-      supermarket: "Продуктовый супермаркет для покупки еды и товаров первой необходимости.",
-      bakery: "Пекарня с хлебом, выпечкой и другими изделиями; ассортимент зависит от заведения.",
-      pharmacy: "Аптека, где продают лекарства и товары для здоровья.",
-      bank: "Банковское отделение или банковская точка обслуживания.",
-      atm: "Банкомат для снятия наличных и других банковских операций.",
-      fuel: "Автозаправочная станция для заправки транспорта.",
-      car_repair: "Автомастерская для обслуживания и ремонта автомобилей.",
-      doctors: "Медицинский кабинет или врачебная практика для приёма пациентов.",
-      clinic: "Медицинская клиника, где оказывают диагностические или лечебные услуги.",
-      hospital: "Больница, оказывающая медицинскую помощь пациентам.",
-      dentist: "Стоматологический кабинет или клиника.",
-      school: "Учебное заведение для обучения детей или подростков.",
-      kindergarten: "Детский сад для присмотра и дошкольного образования.",
-      library: "Библиотека, где можно пользоваться книжным фондом и другими информационными материалами.",
-      police: "Подразделение полиции или пункт правоохранительной службы.",
-      townhall: "Административное учреждение местного самоуправления.",
-      community_centre: "Общественный центр для встреч, мероприятий и занятий.",
-      restaurant: "Ресторан, где можно заказать приготовленные блюда; меню и режим работы зависят от заведения.",
-      cafe: "Кафе для кофе, напитков и лёгкой еды; конкретное меню зависит от заведения.",
-      fast_food: "Заведение быстрого питания, где можно заказать готовую еду.",
-      bar: "Бар, специализирующийся на напитках; наличие еды и режим работы зависят от места.",
-      hotel: "Гостиница или отель для временного проживания.",
-      guest_house: "Гостевой дом для кратковременного проживания.",
-      museum: "Музей с экспозициями и материалами по своей тематике.",
-      attraction: "Достопримечательность или объект, который может быть интересен посетителям города.",
-      viewpoint: "Смотровая площадка или место с видом на окружающую местность.",
-      park: "Парк или зелёная общественная территория для прогулок и отдыха.",
-      playground: "Детская игровая площадка.",
-      sports_centre: "Спортивный центр для тренировок и занятий физической активностью.",
-      fitness_centre: "Фитнес-клуб или тренажёрный зал.",
-      bus_stop: "Остановка общественного транспорта.",
-      bus_station: "Автобусная станция или автовокзал для посадки и высадки пассажиров.",
-      railway_station: "Железнодорожная станция для посадки и высадки пассажиров.",
-      subway_entrance: "Вход на станцию метро.",
-      parking: "Парковка для временной стоянки автомобилей.",
-      toilets: "Общественный туалет.",
-      marketplace: "Торговая точка или пункт обслуживания покупателей."
-    };
-    if (shop && typeLabels[shop]) return typeLabels[shop];
-    if (amenity && typeLabels[amenity]) return typeLabels[amenity];
-    if (office) return office === "government" ? "Государственное или муниципальное учреждение." : office === "company" ? "Офис компании или организации." : "Офис или место оказания профессиональных услуг.";
-    if (healthcare) return healthcare === "pharmacy" ? typeLabels.pharmacy : "Медицинское учреждение или специалист, оказывающий услуги в сфере здравоохранения.";
-    if (craft) return "Мастерская или небольшое предприятие, выполняющее специализированные работы.";
-    if (tourism && typeLabels[tourism]) return typeLabels[tourism];
-    if (leisure === "park" || leisure === "garden") return typeLabels.park;
-    if (leisure === "playground") return typeLabels.playground;
-    if (leisure && /sports_centre|fitness_centre|pitch|stadium/.test(leisure)) return typeLabels.sports_centre;
-    if (/restaurant|cafe|food/.test(normalized)) return "Заведение, где можно поесть или выпить кофе. Конкретное меню и услуги зависят от места.";
-    if (/hotel|lodging/.test(normalized)) return typeLabels.hotel;
-    if (/park|garden/.test(normalized)) return typeLabels.park;
-    if (/museum/.test(normalized)) return typeLabels.museum;
-    if (/attraction|viewpoint|historic|monument/.test(normalized)) return typeLabels.attraction;
-    if (/transport|station/.test(normalized)) return "Транспортный объект, связанный с посадкой пассажиров или передвижением по городу.";
-    // Unknown building types should not produce a generic disclaimer in the short description.
-    if (building && building !== "yes") return "";
-    return "";
   }
 
   function categoryLabelRu(properties = {}, category = "other", isBuilding = false) {
@@ -573,16 +488,9 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   }
 
   function hidePlaceDetails() {
+    currentPlace = null;
     placeDetailsPanel.classList.add("hidden");
     placeDetailsPanel.classList.remove("visible");
-  }
-
-  function featureDisplayName(properties = {}) {
-    const candidates = [properties["name:ru"], properties.name, properties["name:en"], properties.name_en, properties.ref];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-    }
-    return "";
   }
 
   function handleVectorFeatureClick(event) {
@@ -591,42 +499,33 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     // card and intentionally do not create a new one.
     hidePlaceDetails();
     selectedPlaceRequestId += 1;
-    const features = map.queryRenderedFeatures(event.point) || [];
-    if (!features.length) return;
 
-    // Prefer a named/meaningful point or area. An anonymous building footprint is
-    // deliberately ignored instead of being presented as "Building on map".
+    const features = map.queryRenderedFeatures(event.point) || [];
+    // Only recognisable objects open a card. Basemap labels (city and country
+    // names), road names, water bodies, boundaries and road shields with a numeric
+    // ref are rejected, so a click on an empty-looking area never creates a card.
     const feature = features.find((item) => {
-      const props = item.properties || {};
       const layer = map.getLayer(item.layer?.id);
       const sourceLayer = String(item.sourceLayer || layer?.["source-layer"] || "");
-      const isBuilding = /building/i.test(sourceLayer) || /building/i.test(String(item.layer?.id || "")) || item.layer?.id === BUILDING_EXTRUSION_LAYER_ID;
-      const name = featureDisplayName(props);
-      if (isBuilding && !name) return false;
-      const meaningful = name || props.amenity || props.shop || props.tourism || props.leisure || props.historic || props.office || props.public_transport || props.railway || props.highway === "bus_stop";
-      return Boolean(meaningful);
+      return isClickableMapFeature(sourceLayer, item.properties || {});
     });
     if (!feature) return;
 
     const props = feature.properties || {};
     const layer = map.getLayer(feature.layer?.id);
     const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
-    const isBuilding = /building/i.test(sourceLayer) || /building/i.test(String(feature.layer?.id || "")) || feature.layer?.id === BUILDING_EXTRUSION_LAYER_ID;
+    const isBuilding = sourceLayer === "building";
     const name = featureDisplayName(props);
     if (!name) return;
 
-    const street = props["addr:street"] || props.street || "";
-    const cityName = activeCity?.name || activeCity?.name_en || "";
-    const addressParts = [activeCity?.country || "", activeCity?.region || "", cityName, props["addr:suburb"] || props["addr:district"] || "", street]
-      .filter(Boolean).map(cleanAddressPart).filter(Boolean)
-      .filter((part, index, all) => all.findIndex((x) => String(x).toLowerCase() === String(part).toLowerCase()) === index);
     const category = isBuilding ? "other" : categoryFromVectorProperties(props, sourceLayer);
     const place = {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
       name,
       category,
-      description: cleanPlaceDescription(props["description:ru"] || props.description || props["description:en"] || "") || cleanPlaceDescription(descriptionForPlace(category, name, props)),
-      address: addressParts.join(", "),
+      // Real description tags only; no templated sentences.
+      description: descriptionFromProperties(props),
+      address: "",
       tags: props,
       lat: event.lngLat.lat,
       lon: event.lngLat.lng
@@ -643,39 +542,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (/attraction|historic|tourism|monument/.test(value)) return "attraction";
     if (/station|transport|railway/.test(value)) return "transport";
     return "other";
-  }
-
-  function popupForPlace(place) {
-    const content = document.createElement("div");
-    content.className = "city-place-popup";
-    const title = document.createElement("strong");
-    title.className = "city-place-popup-title";
-    title.textContent = place.name;
-    const category = document.createElement("div");
-    category.className = "city-place-popup-category";
-    category.textContent = CATEGORY_META[place.category]?.label || "Место";
-    content.append(title, category);
-    if (place.description) {
-      const description = document.createElement("p");
-      description.className = "city-place-popup-description";
-      description.textContent = place.description;
-      content.appendChild(description);
-    }
-    if (place.address) {
-      const address = document.createElement("div");
-      address.className = "city-place-popup-address";
-      address.textContent = place.address;
-      content.appendChild(address);
-    }
-    const addButton = document.createElement("button");
-    addButton.type = "button";
-    addButton.className = "city-place-popup-add";
-    addButton.dataset.addPlace = "true";
-    addButton.textContent = routeStops.some((item) => item.id === place.id) ? "Уже в маршруте ✓" : "Добавить в маршрут";
-    addButton.disabled = routeStops.some((item) => item.id === place.id);
-    addButton.addEventListener("click", () => addPlaceToRoute(place));
-    content.appendChild(addButton);
-    return content;
   }
 
   function addMarkersForPlaces() {
@@ -696,7 +562,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       const marker = new mapLibrary.Marker({ element, anchor: "bottom" })
         .setLngLat([place.lon, place.lat])
         .addTo(map);
-      const markerEntry = { place, marker, element, popupElement: null };
+      const markerEntry = { place, marker, element };
       markers.push(markerEntry);
 
       element.addEventListener("click", (event) => {
@@ -711,8 +577,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   function clearMarkers() {
     for (const entry of markers) entry.marker.remove();
     markers = [];
-    if (activePopup) activePopup.remove();
-    activePopup = null;
   }
 
   function applyPlaceFilter() {
@@ -983,11 +847,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       map.on("mousemove", (event) => {
         if (!mapReady) return;
         const features = map.queryRenderedFeatures(event.point) || [];
+        // The cursor mirrors the click rule: only objects that can actually open
+        // a card look clickable.
         const clickable = features.some((feature) => {
           const layer = map.getLayer(feature.layer?.id);
           const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
-          return feature.layer?.id === BUILDING_EXTRUSION_LAYER_ID || /building/i.test(sourceLayer) ||
-            /building/i.test(String(feature.layer?.id || "")) || Boolean(featureDisplayName(feature.properties));
+          return isClickableMapFeature(sourceLayer, feature.properties || {});
         });
         map.getCanvas().style.cursor = clickable ? "pointer" : "";
       });
@@ -1078,7 +943,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   const routeFromInput = document.getElementById("city-route-from");
   const routeToInput = document.getElementById("city-route-to");
 
-  function selectCityTool(tool) {
+  function selectCityTool(tool, { focus = true } = {}) {
     const isSearch = tool !== "route";
     document.querySelectorAll("[data-city-tool]").forEach((button) => {
       const selected = button.dataset.cityTool === (isSearch ? "search" : "route");
@@ -1091,7 +956,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     routePanel?.classList.toggle("hidden", isSearch);
     if (searchPanel) searchPanel.hidden = !isSearch;
     if (routePanel) routePanel.hidden = isSearch;
-    if (!isSearch) routeFromInput?.focus({ preventScroll: true });
+    if (!isSearch && focus) routeFromInput?.focus({ preventScroll: true });
   }
 
   document.querySelectorAll("[data-city-tool]").forEach((button) => {
@@ -1128,6 +993,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   }
 
   routeBuildButton?.addEventListener("click", () => {
+    if (!mapReady || !map || !mapLibrary) {
+      setStatus("Карта ещё загружается. Попробуйте через пару секунд.");
+      return;
+    }
     const from = findPlaceByInput(routeFromInput?.value);
     const to = findPlaceByInput(routeToInput?.value);
     if (!from || !to) {
@@ -1138,14 +1007,23 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       setStatus("Начальная и конечная точки должны отличаться.");
       return;
     }
-    routeStops = [from, to];
+    // The two-point builder appends to the current route instead of silently
+    // discarding places the user already added from a card.
+    const nextStops = routeStops.slice();
+    for (const place of [from, to]) {
+      if (!nextStops.some((item) => item.id === place.id)) nextStops.push(place);
+    }
+    routeStops = nextStops;
     renderRouteStops();
     const bounds = new mapLibrary.LngLatBounds([from.lon, from.lat], [to.lon, to.lat]);
-    map?.fitBounds(bounds, { padding: { top: 120, right: 80, bottom: 90, left: 360 }, maxZoom: 15.5, duration: 650 });
-    setStatus(`Маршрут подготовлен: ${from.name} → ${to.name}. Линия соединяет выбранные точки; навигация по дорогам пока не подключена.`);
+    map.fitBounds(bounds, { padding: { top: 120, right: 80, bottom: 90, left: 360 }, maxZoom: 15.5, duration: 650 });
+    setStatus(`Маршрут дополнен: ${from.name} → ${to.name}. Точек в маршруте: ${routeStops.length}.`);
   });
   clearRouteButton.addEventListener("click", clearRoute);
   placeDetailsCloseButton.addEventListener("click", hidePlaceDetails);
+  placeDetailsAddButton.addEventListener("click", () => {
+    if (currentPlace) addPlaceToRoute(currentPlace);
+  });
   placeDetailsRouteButton.addEventListener("click", () => {
     selectCityTool("route");
     if (routeToInput) routeToInput.value = placeDetailsTitle.textContent || "";
