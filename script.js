@@ -53,9 +53,9 @@ applyLanguage();
 startI18nObserver();
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.53";
+export const WAYMARK_VERSION = "1.54";
 document.documentElement.dataset.version = WAYMARK_VERSION;
-console.info(`WAY●MARK ${WAYMARK_VERSION} — тёмная тема, английские названия и контраст`);
+console.info(`WAY●MARK ${WAYMARK_VERSION} — плавная загрузка текстуры глобуса`);
 
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
@@ -524,21 +524,19 @@ Promise.all([
     cloudMaterial.needsUpdate = true;
   }
 
-  // Progressive upgrade: the 2K map is already visible, and a 4K texture replaces
-  // it as soon as it downloads, without delaying the first frame.
+  // Progressive upgrade: the 2K map is already visible, and a 4K texture is
+  // blended in as soon as it downloads, without delaying the first frame and
+  // without a visible "model change".
   if (blueMarbleMap) {
-    loadTexture("https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg", THREE.SRGBColorSpace)
-      .then((detailedMap) => {
-        if (!detailedMap) return;
-        detailedMap.anisotropy = maxAnisotropy;
-        detailedMap.wrapS = THREE.RepeatWrapping;
-        detailedMap.wrapT = THREE.ClampToEdgeWrapping;
-        detailedMap.colorSpace = THREE.SRGBColorSpace;
-        detailedMap.needsUpdate = true;
-        earthMaterial.map = detailedMap;
-        earthMaterial.needsUpdate = true;
-        state.sceneDirty = true;
-      });
+    loadDetailedEarthTexture().then((detailedMap) => {
+      if (!detailedMap) return;
+      detailedMap.anisotropy = maxAnisotropy;
+      detailedMap.wrapS = THREE.RepeatWrapping;
+      detailedMap.wrapT = THREE.ClampToEdgeWrapping;
+      detailedMap.colorSpace = THREE.SRGBColorSpace;
+      detailedMap.needsUpdate = true;
+      crossfadeEarthTexture(detailedMap, earthMap);
+    });
   }
 }).catch((error) => {
   console.warn("WAY●MARK: texture loading had a problem; continuing with fallback materials.", error);
@@ -547,6 +545,63 @@ Promise.all([
   window.clearTimeout(startupAssetFallbackTimer);
   finishStartupLoaderIfReady();
 });
+
+const DETAILED_EARTH_URLS = [
+  "https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/2_no_clouds_4k.jpg",
+  "https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg"
+];
+
+async function loadDetailedEarthTexture() {
+  for (const url of DETAILED_EARTH_URLS) {
+    const texture = await loadTexture(url, THREE.SRGBColorSpace);
+    if (texture) return texture;
+  }
+  return null;
+}
+
+// The high-resolution map is blended over the current one instead of replacing it
+// instantly, so a late download never looks like the planet changes model.
+function crossfadeEarthTexture(texture, previousTexture) {
+  const overlayMaterial = new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: earthMaterial.roughness,
+    metalness: 0,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    emissive: earthMaterial.emissive.clone(),
+    emissiveIntensity: earthMaterial.emissiveIntensity
+  });
+  if (earthMaterial.bumpMap) {
+    overlayMaterial.bumpMap = earthMaterial.bumpMap;
+    overlayMaterial.bumpScale = earthMaterial.bumpScale;
+  }
+  const overlay = new THREE.Mesh(earth.geometry, overlayMaterial);
+  // A tiny offset avoids z-fighting with the base sphere.
+  overlay.scale.setScalar(1.0008);
+  overlay.renderOrder = 1;
+  earth.add(overlay);
+
+  const startedAt = performance.now();
+  const duration = 900;
+  const finish = () => {
+    earthMaterial.map = texture;
+    earthMaterial.needsUpdate = true;
+    earth.remove(overlay);
+    overlayMaterial.dispose();
+    if (previousTexture && previousTexture !== texture) previousTexture.dispose?.();
+    state.sceneDirty = true;
+  };
+  const step = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = progress * progress * (3 - 2 * progress);
+    overlayMaterial.opacity = eased;
+    state.sceneDirty = true;
+    if (progress < 1) requestAnimationFrame(step);
+    else finish();
+  };
+  requestAnimationFrame(step);
+}
 
 function setPerformanceMode(active) {
   if (state.performanceMode === active) return;
