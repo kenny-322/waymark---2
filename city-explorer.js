@@ -960,22 +960,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
 
   /* ------------------------------------------------------------ map setup */
 
-  function hideBasemapPoiIcons() {
-    if (!map) return;
-    const layers = map.getStyle()?.layers || [];
-    for (const layer of layers) {
-      if (layer.type !== "symbol" || !layer.layout?.["icon-image"]) continue;
-      // Hide symbol artwork only. Text labels (street/place names) remain.
-      try {
-        if (map.getPaintProperty(layer.id, "icon-opacity") !== 0) {
-          map.setPaintProperty(layer.id, "icon-opacity", 0);
-        }
-      } catch (error) {
-        console.debug("WAY●MARK: could not hide map symbol", layer.id, error);
-      }
-    }
-  }
-
   function setViewMode(mode, { animate = true } = {}) {
     if (!map || !mapReady) return;
     mapViewMode = mode === "3d" ? "3d" : "2d";
@@ -1105,7 +1089,6 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
 
       map.once("load", () => {
         mapReady = true;
-        hideBasemapPoiIcons();
         add3DBuildingsLayer();
         map.addSource("waymark-city-route", { type: "geojson", data: emptyFeatureCollection() });
         map.addLayer({
