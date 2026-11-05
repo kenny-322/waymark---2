@@ -271,7 +271,9 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   let reverseGeocodeQueue = Promise.resolve();
 
   function setStatus(message) {
-    statusElement.textContent = message;
+    const text = String(message || "").trim();
+    statusElement.textContent = text;
+    statusElement.classList.toggle("hidden", !text);
   }
 
   function setFallbackMessage(message) {
@@ -613,13 +615,9 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
   }
 
   function updatePlacesStatus() {
-    if (!places.length) return;
-    const source = placesSource === "mixed"
-      ? "OpenStreetMap + база WAY●MARK"
-      : placesSource === "openstreetmap"
-        ? "OpenStreetMap"
-        : "база WAY●MARK";
-    setStatus(`${places.length} мест · ${source}`);
+    // Do not show the technical place count/source beneath the search field.
+    // Keep the status line available for loading and genuine error messages.
+    if (places.length) setStatus("");
   }
 
   function cityPlacesQuery(city) {
@@ -932,8 +930,10 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     const feature = features.find((item) => {
       const layer = map.getLayer(item.layer?.id);
       const sourceLayer = String(item.sourceLayer || layer?.["source-layer"] || "");
-      return isClickableMapFeature(sourceLayer, item.properties || {}) &&
-        isPointFeatureWithinSelectionRadius(item, event);
+      // queryRenderedFeatures already performs hit-testing against visible
+      // symbols and their labels. Do not apply an additional geographic radius:
+      // it made valid POI icons/names impossible to select when not in search.
+      return isClickableMapFeature(sourceLayer, item.properties || {});
     });
     if (!feature) return;
 
@@ -1122,8 +1122,7 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         const clickable = features.some((feature) => {
           const layer = map.getLayer(feature.layer?.id);
           const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
-          return isClickableMapFeature(sourceLayer, feature.properties || {}) &&
-            isPointFeatureWithinSelectionRadius(feature, event);
+          return isClickableMapFeature(sourceLayer, feature.properties || {});
         });
         map.getCanvas().style.cursor = clickable ? "pointer" : "";
       });
