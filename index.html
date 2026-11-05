@@ -65,8 +65,7 @@
         </button>
 
         <nav class="main-nav" id="main-nav" aria-label="Основная навигация">
-          <button class="nav-button active" data-view="map" type="button">Карта</button>
-          <button class="nav-button" data-view="trips" type="button">Моё путешествие</button>
+          <button class="nav-button" data-view="trips" type="button">Мои путешествия</button>
           <button class="nav-button" id="surprise-button" type="button">Удиви меня</button>
         </nav>
 
@@ -123,13 +122,13 @@
         </section>
       </div>
 
-      <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
       <div class="edge-hint edge-hint-left">‹</div>
       <div class="edge-hint edge-hint-right">›</div>
 
       
     </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <section id="city-explorer" class="city-explorer hidden" aria-label="Исследование города">
       <div id="city-explorer-map" class="city-explorer-map" aria-label="Векторная карта города"></div>
@@ -143,6 +142,10 @@
           <h2 id="city-explorer-title">Город</h2>
           <div id="city-explorer-subtitle" class="city-explorer-subtitle">Выберите места на карте</div>
         </div>
+        <nav class="city-explorer-actions" aria-label="Разделы города">
+          <button id="city-about-button" class="city-top-button" type="button">О городе</button>
+          <button id="city-routes-button" class="city-top-button" type="button">Мои маршруты</button>
+        </nav>
       </header>
 
       <div class="city-explorer-view-toggle glass-panel" role="group" aria-label="Режим отображения карты">
@@ -150,56 +153,75 @@
         <button type="button" class="city-view-button" data-map-view="3d" aria-pressed="false">3D</button>
       </div>
 
-      <section class="city-explorer-search glass-panel" aria-label="Поиск и построение маршрута">
-        <div class="city-tool-tabs" role="tablist" aria-label="Инструменты города">
-          <button class="city-tool-tab active" id="city-search-tab" type="button" role="tab" aria-selected="true" aria-controls="city-search-panel" data-city-tool="search">Поиск</button>
-          <button class="city-tool-tab" id="city-route-tab" type="button" role="tab" aria-selected="false" aria-controls="city-route-panel" data-city-tool="route">Маршрут</button>
+      <section class="city-explorer-search glass-panel" aria-label="Поиск мест">
+        <div class="city-search-row">
+          <span class="city-search-icon" aria-hidden="true">⌕</span>
+          <input id="city-place-search" type="search" placeholder="Найти место в городе" autocomplete="off" aria-label="Поиск места в городе" />
         </div>
-        <div id="city-search-panel" class="city-tool-panel" role="tabpanel" aria-labelledby="city-search-tab">
-          <label class="city-search-label" for="city-place-search">Найти место в этом городе</label>
-          <div class="city-search-row">
-            <span class="city-search-icon" aria-hidden="true">⌕</span>
-            <input id="city-place-search" type="search" placeholder="Название, адрес или категория" autocomplete="off" />
-            <button id="city-place-search-button" type="button" aria-label="Найти">Найти</button>
-          </div>
-          <div class="city-search-help">Результаты будут отмечены на карте</div>
-        </div>
-        <div id="city-route-panel" class="city-tool-panel hidden" role="tabpanel" aria-labelledby="city-route-tab" hidden>
-          <label class="city-search-label" for="city-route-from">Точка отправления</label>
-          <label class="city-route-field"><span aria-hidden="true">●</span><input id="city-route-from" type="text" placeholder="Название места или адрес" autocomplete="off" /></label>
-          <label class="city-search-label city-route-to-label" for="city-route-to">Куда направиться</label>
-          <label class="city-route-field destination"><span aria-hidden="true">◆</span><input id="city-route-to" type="text" placeholder="Название места или адрес" autocomplete="off" /></label>
-          <button id="city-route-build-button" class="city-route-build-button" type="button">Составить маршрут</button>
-          <div class="city-route-footnote">Выберите две точки из мест, найденных на карте города.</div>
-        </div>
-        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Введите название места для поиска</div>
+        <div id="city-search-results" class="city-search-results glass-panel hidden" role="listbox" aria-label="Результаты поиска"></div>
+        <div id="city-explorer-data-status" class="city-explorer-data-status" role="status" aria-live="polite">Загружаем места…</div>
       </section>
 
-      <aside id="city-explorer-route" class="city-explorer-route city-explorer-route-state" aria-label="Маршрут по городу">
-        <div class="city-explorer-route-head">
-          <div>
-            <div class="city-explorer-kicker">МОИ МЕСТА</div>
-            <h3>Маршрут по городу</h3>
-          </div>
-          <span id="city-explorer-stop-count" class="city-explorer-stop-count">0</span>
+      <aside id="city-explorer-route" class="city-explorer-route glass-panel" aria-label="Мой маршрут">
+        <div class="city-route-head">
+          <h3>Маршрут</h3>
+          <button id="city-route-reset" class="city-route-reset" type="button" disabled>Сбросить</button>
         </div>
-        <p class="city-explorer-route-hint">Добавьте место из карточки на карте или соберите маршрут между двумя точками.</p>
         <ol id="city-explorer-route-stops" class="city-explorer-route-stops"></ol>
-        <div id="city-explorer-route-empty" class="city-explorer-route-empty">Пока пусто. Откройте место на карте и нажмите «Добавить в маршрут».</div>
-        <button id="city-explorer-clear-route" class="city-explorer-clear-route" type="button" disabled>Очистить маршрут</button>
+        <div id="city-explorer-route-empty" class="city-explorer-route-empty">Добавьте место в маршрут</div>
+        <button id="city-route-save" class="city-route-save" type="button" disabled>Добавить в мои маршруты</button>
       </aside>
+
+      <button id="city-route-return" class="city-route-return hidden" type="button">Вернуться к маршруту</button>
+
       <aside id="city-place-details" class="city-place-details glass-panel hidden" aria-live="polite" aria-label="Информация о месте">
         <button id="city-place-details-close" class="city-place-details-close" type="button" aria-label="Закрыть информацию">×</button>
         <div id="city-place-details-category" class="city-place-details-category">Место на карте</div>
         <h3 id="city-place-details-title">Выбранное место</h3>
         <p id="city-place-details-description" class="city-place-details-description"></p>
         <div id="city-place-details-meta" class="city-place-details-meta"></div>
-        <button id="city-place-details-add" class="city-place-details-add" type="button">Добавить в маршрут</button>
-        <button id="city-place-details-route" class="city-place-details-route" type="button">Составить маршрут</button>
+        <section id="city-place-details-info" class="city-place-details-info hidden" aria-label="Краткая информация">
+          <div class="city-place-info-title">Краткая информация</div>
+          <div id="city-place-details-info-rows" class="city-place-info-rows"></div>
+        </section>
+        <div class="city-place-points">
+          <button id="city-place-set-origin" class="city-place-point" type="button">Точка отправления</button>
+          <button id="city-place-set-destination" class="city-place-point" type="button">Точка прибытия</button>
+        </div>
+        <div class="city-place-actions">
+          <button id="city-place-details-add" class="city-place-details-add" type="button">Добавить в маршрут</button>
+          <button id="city-place-details-reset" class="city-place-reset" type="button">Сбросить</button>
+        </div>
       </aside>
+
+      <div id="city-about-modal" class="city-modal hidden">
+        <div class="city-modal-panel glass-panel" role="dialog" aria-modal="true" aria-labelledby="city-about-title">
+          <header class="city-modal-header">
+            <div>
+              <div class="city-modal-kicker">О ГОРОДЕ</div>
+              <h2 id="city-about-title">Город</h2>
+            </div>
+            <button id="city-about-close" class="city-modal-close" type="button" aria-label="Закрыть">×</button>
+          </header>
+          <div id="city-about-content" class="city-about-content"></div>
+        </div>
+      </div>
+
+      <div id="city-routes-modal" class="city-modal hidden">
+        <div class="city-modal-panel glass-panel" role="dialog" aria-modal="true" aria-labelledby="city-routes-title">
+          <header class="city-modal-header">
+            <div>
+              <div class="city-modal-kicker">СОХРАНЕНО</div>
+              <h2 id="city-routes-title">Мои маршруты</h2>
+            </div>
+            <button id="city-routes-close" class="city-modal-close" type="button" aria-label="Закрыть">×</button>
+          </header>
+          <div id="city-routes-content" class="city-routes-content"></div>
+        </div>
+      </div>
+
       <div id="city-explorer-fallback" class="city-explorer-fallback hidden" role="status"></div>
-    </section>
-  </main>
+    </section>  </main>
 
   <script type="module" src="./script.js"></script>
 </body>

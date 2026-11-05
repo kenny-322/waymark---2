@@ -1,6 +1,6 @@
-/* WAY●MARK city explorer, v1.48.
- * One generic map workflow for every city in CITY_DATA. Street basemaps are
- * vector tiles; named places are loaded on demand from OpenStreetMap Overpass.
+/* WAY●MARK city explorer, v1.49.
+ * Trip-first city exploration: a map with a compact search, a growing route
+ * panel and two sections — "О городе" and "Мои маршруты".
  * Place cards use structured map fields only: no house numbers, no postcodes,
  * no coordinate tails and no invented descriptions.
  */
@@ -22,19 +22,12 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter"
 ];
-const MAX_DISPLAYED_PLACES = 150;
+const MAX_DISPLAYED_PLACES = 180;
 const DEFAULT_RADIUS_METERS = 7000;
 const CITY_OVERVIEW_RADIUS_METERS = 25000;
 const BUILDING_EXTRUSION_LAYER_ID = "waymark-3d-buildings";
-
-const FILTER_DEFINITIONS = {
-  all: { label: "Все", categories: null },
-  attraction: { label: "Места", categories: new Set(["attraction", "museum", "viewpoint"]) },
-  food: { label: "Еда", categories: new Set(["restaurant", "cafe"]) },
-  park: { label: "Парки", categories: new Set(["park"]) },
-  hotel: { label: "Отели", categories: new Set(["hotel"]) },
-  transport: { label: "Транспорт", categories: new Set(["transport"]) }
-};
+const CITY_ROUTES_STORAGE_KEY = "waymarkCityRoutes";
+const MAX_SAVED_ROUTES = 30;
 
 const CATEGORY_META = {
   attraction: { label: "Достопримечательность", icon: "🏛️" },
@@ -47,6 +40,19 @@ const CATEGORY_META = {
   transport: { label: "Транспорт", icon: "🚇" },
   other: { label: "Место", icon: "📍" }
 };
+
+// Route themes only use "interesting" categories: parks, museums, viewpoints and
+// attractions. Shops, pick-up points, hospitals and offices are never routed.
+const ROUTE_THEMES = [
+  { id: "history", title: "История", icon: "🏛️", caption: "Старый город и памятники", categories: ["attraction"] },
+  { id: "museums", title: "Музеи", icon: "🎨", caption: "Коллекции и галереи", categories: ["museum"] },
+  { id: "parks", title: "Парки", icon: "🌳", caption: "Зелень и прогулки", categories: ["park"] },
+  { id: "views", title: "Панорамы", icon: "🔭", caption: "Смотровые площадки", categories: ["viewpoint"] },
+  { id: "top", title: "Главное", icon: "★", caption: "Самое заметное в городе", categories: ["attraction", "museum", "park", "viewpoint"] },
+  { id: "nearby", title: "Рядом", icon: "📍", caption: "Ближе к центру", categories: ["attraction", "museum", "park", "viewpoint"] }
+];
+
+const ROUTABLE_CATEGORIES = new Set(["attraction", "museum", "park", "viewpoint"]);
 
 let maplibrePromise = null;
 let maplibreCssRequested = false;
@@ -78,14 +84,36 @@ function elementById(id) {
   return node;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]
+  ));
+}
+
+function formatLocalTime(city) {
+  try {
+    return new Intl.DateTimeFormat("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: city.timezone
+    }).format(new Date());
+  } catch {
+    return "--:--";
+  }
+}
+
 function categoryFromTags(tags = {}) {
-  if (tags.tourism === "hotel" || tags.tourism === "hostel" || tags.tourism === "guest_house" || tags.tourism === "motel") return "hotel";
-  if (tags.amenity === "restaurant" || tags.amenity === "fast_food" || tags.amenity === "food_court") return "restaurant";
-  if (tags.amenity === "cafe" || tags.amenity === "ice_cream") return "cafe";
-  if (tags.leisure === "park" || tags.leisure === "garden" || tags.landuse === "recreation_ground") return "park";
-  if (tags.tourism === "museum" || tags.tourism === "gallery") return "museum";
+  if (["hotel", "hostel", "guest_house", "motel"].includes(tags.tourism)) return "hotel";
+  if (["restaurant", "fast_food", "food_court", "canteen"].includes(tags.amenity)) return "restaurant";
+  if (["cafe", "ice_cream"].includes(tags.amenity)) return "cafe";
+  if (["park", "garden", "nature_reserve", "recreation_ground"].includes(tags.leisure)) return "park";
+  if (tags.landuse === "recreation_ground") return "park";
+  if (["museum", "gallery"].includes(tags.tourism)) return "museum";
   if (tags.tourism === "viewpoint") return "viewpoint";
-  if (tags.tourism === "attraction" || tags.tourism === "artwork" || tags.historic) return "attraction";
+  if (["attraction", "artwork", "zoo", "aquarium", "theme_park"].includes(tags.tourism)) return "attraction";
+  if (tags.historic) return "attraction";
+  if (["theatre", "arts_centre", "planetarium", "place_of_worship"].includes(tags.amenity)) return "attraction";
   if (tags.public_transport || tags.railway === "station" || tags.railway === "subway_entrance" || tags.amenity === "bus_station") return "transport";
   return "other";
 }
@@ -141,7 +169,7 @@ function distanceApproxMeters(a, b) {
 }
 
 function choosePlacesForMap(places) {
-  const quotas = { attraction: 42, museum: 20, viewpoint: 10, park: 18, restaurant: 20, cafe: 16, hotel: 10, transport: 8 };
+  const quotas = { attraction: 60, museum: 26, viewpoint: 12, park: 26, restaurant: 16, cafe: 12, hotel: 8, transport: 8 };
   const selected = [];
   const selectedIds = new Set();
   const byCategory = new Map();
@@ -181,29 +209,48 @@ function buildFallbackAttractions(city) {
   }));
 }
 
-function escapeText(value) {
-  return String(value ?? "");
-}
-
-export function createCityExplorer({ onToast = () => {} } = {}) {
+export function createCityExplorer({ onToast = () => {}, findCity = () => null } = {}) {
   const root = elementById("city-explorer");
   const mapElement = elementById("city-explorer-map");
   const titleElement = elementById("city-explorer-title");
   const subtitleElement = elementById("city-explorer-subtitle");
   const statusElement = elementById("city-explorer-data-status");
   const fallbackElement = elementById("city-explorer-fallback");
+
+  const searchPanel = root.querySelector(".city-explorer-search");
+  const searchInput = elementById("city-place-search");
+  const searchResults = elementById("city-search-results");
+
+  const routePanel = elementById("city-explorer-route");
   const routeStopsElement = elementById("city-explorer-route-stops");
   const routeEmptyElement = elementById("city-explorer-route-empty");
-  const routeCountElement = elementById("city-explorer-stop-count");
-  const clearRouteButton = elementById("city-explorer-clear-route");
+  const routeResetButton = elementById("city-route-reset");
+  const routeSaveButton = elementById("city-route-save");
+  const routeReturnButton = elementById("city-route-return");
+
   const placeDetailsPanel = elementById("city-place-details");
   const placeDetailsTitle = elementById("city-place-details-title");
   const placeDetailsCategory = elementById("city-place-details-category");
   const placeDetailsDescription = elementById("city-place-details-description");
   const placeDetailsMeta = elementById("city-place-details-meta");
+  const placeDetailsInfo = elementById("city-place-details-info");
+  const placeDetailsInfoRows = elementById("city-place-details-info-rows");
   const placeDetailsAddButton = elementById("city-place-details-add");
-  const placeDetailsRouteButton = elementById("city-place-details-route");
+  const placeDetailsResetButton = elementById("city-place-details-reset");
+  const placeDetailsOriginButton = elementById("city-place-set-origin");
+  const placeDetailsDestinationButton = elementById("city-place-set-destination");
   const placeDetailsCloseButton = elementById("city-place-details-close");
+
+  const aboutButton = elementById("city-about-button");
+  const aboutModal = elementById("city-about-modal");
+  const aboutTitle = elementById("city-about-title");
+  const aboutContent = elementById("city-about-content");
+  const aboutClose = elementById("city-about-close");
+
+  const routesButton = elementById("city-routes-button");
+  const routesModal = elementById("city-routes-modal");
+  const routesContent = elementById("city-routes-content");
+  const routesClose = elementById("city-routes-close");
 
   let map = null;
   let mapLibrary = null;
@@ -211,8 +258,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   let mapInitializationPromise = null;
   let activeCity = null;
   let requestSequence = 0;
-  let currentFilter = "all";
-  let searchQuery = "";
   let places = [];
   let fallbackAttractions = [];
   let markers = [];
@@ -220,9 +265,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   let currentPlace = null;
   let isOpen = false;
   let mapViewMode = "2d";
-  let minZoomCityId = null;
   let selectedPlaceRequestId = 0;
   let lastReverseGeocodeAt = 0;
+  let maxRouteStops = 8;
+  let selectedThemeId = null;
   const reverseGeocodeCache = new Map();
   let reverseGeocodeQueue = Promise.resolve();
 
@@ -230,9 +276,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     statusElement.textContent = message;
   }
 
-  function setFallbackMessage(message, show = true) {
-    // Keep the map canvas visually clean; report service problems in the compact
-    // status line of the search panel rather than a large floating toast.
+  function setFallbackMessage(message) {
     fallbackElement.textContent = message;
     fallbackElement.classList.add("hidden");
   }
@@ -241,11 +285,13 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     return { type: "FeatureCollection", features: [] };
   }
 
+  /* ---------------------------------------------------------------- route */
+
   function routeGeoJSON() {
     if (routeStops.length < 2) return emptyFeatureCollection();
     return {
       type: "Feature",
-      properties: { routeType: "draft-itinerary" },
+      properties: { routeType: "city-walk" },
       geometry: {
         type: "LineString",
         coordinates: routeStops.map((place) => [place.lon, place.lat])
@@ -259,11 +305,40 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     if (source) source.setData(routeGeoJSON());
   }
 
+  function isInRoute(place) {
+    return Boolean(place?.id) && routeStops.some((item) => item.id === place.id);
+  }
+
+  function layoutRoutePanel() {
+    if (!isOpen) return;
+    const isMobile = document.documentElement.dataset.device === "mobile";
+    if (isMobile) {
+      // Mobile keeps its own bottom-sheet height and a short stop list.
+      const limited = Math.min(window.innerHeight * 0.36, 310);
+      routePanel.style.maxHeight = `${limited}px`;
+      maxRouteStops = Math.max(2, Math.min(6, Math.floor((limited - 110) / 40)));
+      return;
+    }
+    // Desktop: the route panel sits under the search panel and grows downwards.
+    const searchRect = searchPanel.getBoundingClientRect();
+    const top = Math.max(120, searchRect.bottom + 12);
+    routePanel.style.top = `${top}px`;
+    routePanel.style.bottom = "auto";
+    const available = Math.max(150, window.innerHeight - top - 16);
+    const limited = Math.min(available, 520);
+    routePanel.style.maxHeight = `${limited}px`;
+    // The stop limit is derived from the panel height, so the list can never
+    // grow past the bottom of the screen.
+    const chrome = 118;
+    const rows = Math.floor((limited - chrome) / 46);
+    maxRouteStops = Math.max(3, Math.min(rows, 10));
+  }
+
   function renderRouteStops() {
     routeStopsElement.replaceChildren();
-    routeCountElement.textContent = String(routeStops.length);
     routeEmptyElement.classList.toggle("hidden", routeStops.length > 0);
-    clearRouteButton.disabled = routeStops.length === 0;
+    // The save button only appears when there is something to save.
+    routeSaveButton.classList.toggle("hidden", routeStops.length === 0);
 
     routeStops.forEach((place, index) => {
       const row = document.createElement("li");
@@ -273,80 +348,214 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       number.className = "city-explorer-stop-number";
       number.textContent = String(index + 1);
 
-      const details = document.createElement("div");
-      details.className = "city-explorer-stop-details";
       const name = document.createElement("strong");
+      name.className = "city-explorer-stop-name";
       name.textContent = place.name;
-      const category = document.createElement("span");
-      category.textContent = CATEGORY_META[place.category]?.label || "Место";
-      details.append(name, category);
+      name.title = place.name;
 
-      const actions = document.createElement("div");
-      actions.className = "city-explorer-stop-actions";
-      const up = document.createElement("button");
-      up.type = "button";
-      up.className = "city-explorer-mini-button";
-      up.textContent = "↑";
-      up.title = "Переместить выше";
-      up.setAttribute("aria-label", `Переместить ${place.name} выше`);
-      up.disabled = index === 0;
-      up.addEventListener("click", () => moveRouteStop(index, -1));
-      const down = document.createElement("button");
-      down.type = "button";
-      down.className = "city-explorer-mini-button";
-      down.textContent = "↓";
-      down.title = "Переместить ниже";
-      down.setAttribute("aria-label", `Переместить ${place.name} ниже`);
-      down.disabled = index === routeStops.length - 1;
-      down.addEventListener("click", () => moveRouteStop(index, 1));
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.className = "city-explorer-mini-button remove";
+      remove.className = "city-explorer-stop-remove";
       remove.textContent = "×";
       remove.title = "Убрать из маршрута";
       remove.setAttribute("aria-label", `Убрать ${place.name} из маршрута`);
-      remove.addEventListener("click", () => removeRouteStop(place.id));
-      actions.append(up, down, remove);
-      row.append(number, details, actions);
+      remove.addEventListener("click", () => removePlaceFromRoute(place.id));
+
+      row.append(number, name, remove);
       routeStopsElement.appendChild(row);
     });
 
     refreshRouteLine();
     updateMarkerSelectionClasses();
-    updatePlaceRouteButton();
+    updateRouteControls();
+    updateCardButtons();
+    updateRouteReturnButton();
+    layoutRoutePanel();
   }
 
-  function moveRouteStop(index, delta) {
-    const next = index + delta;
-    if (next < 0 || next >= routeStops.length) return;
-    [routeStops[index], routeStops[next]] = [routeStops[next], routeStops[index]];
-    renderRouteStops();
+  function updateRouteControls() {
+    routeResetButton.disabled = routeStops.length === 0;
+    // One place is enough to press "Добавить в мои маршруты": the user then gets
+    // the "Выберите больше одного места" hint instead of a silent disabled button.
+    routeSaveButton.disabled = routeStops.length === 0;
   }
 
-  function removeRouteStop(placeId) {
+  function removePlaceFromRoute(placeId) {
     routeStops = routeStops.filter((place) => place.id !== placeId);
     renderRouteStops();
+    onToast("Место убрано из маршрута");
   }
 
-  function clearRoute() {
-    routeStops = [];
+  function addPlaceToRoute(place, { atStart = false, silent = false } = {}) {
+    if (!place?.id) return false;
+    if (isInRoute(place)) {
+      onToast("Это место уже в маршруте");
+      return false;
+    }
+    if (routeStops.length >= maxRouteStops) {
+      onToast(`Максимум мест в маршруте: ${maxRouteStops}. Уберите место, чтобы добавить новое.`);
+      return false;
+    }
+    if (atStart) routeStops.unshift(place);
+    else routeStops.push(place);
     renderRouteStops();
+    if (!silent) onToast(`${place.name} — в маршруте`);
+    return true;
   }
 
-  function addPlaceToRoute(place) {
+  function flashRoutePanel() {
+    routePanel.classList.remove("route-flash");
+    // Restart the CSS animation even when it was already running.
+    void routePanel.offsetWidth;
+    routePanel.classList.add("route-flash");
+    window.setTimeout(() => routePanel.classList.remove("route-flash"), 1500);
+  }
+
+  function placeAsEndpoint(place, edge) {
     if (!place?.id) return;
-    if (routeStops.some((item) => item.id === place.id)) {
-      onToast(`${place.name} уже в маршруте`);
-      updatePlaceRouteButton();
+    const wasInRoute = isInRoute(place);
+    if (wasInRoute) routeStops = routeStops.filter((item) => item.id !== place.id);
+    if (!wasInRoute && routeStops.length >= maxRouteStops) {
+      onToast(`Максимум мест в маршруте: ${maxRouteStops}.`);
       return;
     }
-    routeStops.push(place);
+    if (edge === "start") routeStops.unshift(place);
+    else routeStops.push(place);
     renderRouteStops();
-    onToast(`${place.name} добавлено в маршрут`);
-    updatePlaceRouteButton();
-    // Show the route list right away, so the added place is visible.
-    selectCityTool("route", { focus: false });
+    flashRoutePanel();
+    onToast(edge === "start" ? "Место выбрано точкой отправления" : "Место выбрано точкой прибытия");
   }
+
+  function clearRoute({ silent = false } = {}) {
+    if (!routeStops.length) {
+      if (!silent) onToast("Маршрут уже пуст");
+      return;
+    }
+    routeStops = [];
+    renderRouteStops();
+    if (!silent) onToast("Маршрут сброшен");
+  }
+
+  function fitRoute({ duration = 850 } = {}) {
+    if (!mapReady || !map || !routeStops.length) return;
+    if (routeStops.length === 1) {
+      map.flyTo({
+        center: [routeStops[0].lon, routeStops[0].lat],
+        zoom: Math.max(map.getZoom(), 15),
+        duration,
+        essential: true
+      });
+      return;
+    }
+    const bounds = routeStops.reduce(
+      (box, place) => box.extend([place.lon, place.lat]),
+      new mapLibrary.LngLatBounds([routeStops[0].lon, routeStops[0].lat], [routeStops[0].lon, routeStops[0].lat])
+    );
+    map.fitBounds(bounds, {
+      padding: { top: 110, right: 360, bottom: 120, left: 360 },
+      maxZoom: 15.5,
+      duration,
+      essential: true
+    });
+  }
+
+  function isRouteVisible() {
+    if (!mapReady || !map || routeStops.length < 2) return true;
+    const viewport = map.getBounds();
+    return routeStops.every((place) => viewport.contains([place.lon, place.lat]));
+  }
+
+  function updateRouteReturnButton() {
+    const show = routeStops.length >= 2 && mapReady && !isRouteVisible();
+    routeReturnButton.classList.toggle("hidden", !show);
+  }
+
+  function readSavedRoutes() {
+    try {
+      const raw = localStorage.getItem(CITY_ROUTES_STORAGE_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writeSavedRoutes(list) {
+    try {
+      localStorage.setItem(CITY_ROUTES_STORAGE_KEY, JSON.stringify(list.slice(-MAX_SAVED_ROUTES)));
+    } catch {
+      onToast("Не удалось сохранить маршрут в этом браузере.");
+    }
+  }
+
+  function serializeStops(stops) {
+    return stops.map(({ id, name, lat, lon, category }) => ({ id, name, lat, lon, category }));
+  }
+
+  function saveCurrentRoute() {
+    if (!activeCity) return;
+    if (routeStops.length < 2) {
+      onToast("Выберите больше одного места");
+      return;
+    }
+    const saved = {
+      id: `city-route-${Date.now()}`,
+      cityId: activeCity.id,
+      cityName: activeCity.name,
+      createdAt: Date.now(),
+      stops: serializeStops(routeStops)
+    };
+    const list = readSavedRoutes();
+    list.push(saved);
+    writeSavedRoutes(list);
+    onToast("Маршрут сохранён в «Мои маршруты»");
+    if (!routesModal.classList.contains("hidden")) renderSavedRoutes();
+  }
+
+  function renderSavedRoutes() {
+    const list = readSavedRoutes();
+    if (!list.length) {
+      routesContent.innerHTML = `<div class="city-routes-empty">Пока нет сохранённых маршрутов. Соберите места на карте и нажмите «Добавить в мои маршруты».</div>`;
+      return;
+    }
+    routesContent.innerHTML = list.slice().reverse().map((route) => `
+      <button type="button" class="city-saved-route" data-route-id="${escapeHtml(route.id)}">
+        <span class="city-saved-route-main">
+          <strong>${escapeHtml(route.cityName || "Маршрут")}</strong>
+          <span>${route.stops?.length || 0} мест · ${new Date(route.createdAt || Date.now()).toLocaleDateString("ru-RU")}</span>
+        </span>
+        <span class="city-saved-route-arrow" aria-hidden="true">→</span>
+      </button>
+    `).join("");
+    routesContent.querySelectorAll("[data-route-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const route = readSavedRoutes().find((item) => item.id === button.dataset.routeId);
+        if (route) openSavedRoute(route);
+      });
+    });
+  }
+
+  async function openSavedRoute(route) {
+    const city = findCity(route.cityId);
+    if (!city) {
+      onToast("Город этого маршрута недоступен.");
+      return;
+    }
+    closeRoutesModal();
+    if (activeCity?.id !== city.id) {
+      await open(city);
+    }
+    routeStops = (route.stops || []).filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lon));
+    if (routeStops.length < 2) {
+      onToast("В сохранённом маршруте недостаточно мест.");
+      return;
+    }
+    renderRouteStops();
+    fitRoute({ duration: 800 });
+    onToast(`Маршрут «${route.cityName}» открыт на карте`);
+  }
+
+  /* -------------------------------------------------------------- markers */
 
   function updateMarkerSelectionClasses() {
     const selected = new Set(routeStops.map((place) => place.id));
@@ -355,8 +564,123 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     }
   }
 
-  // Address comes from structured map fields only. House numbers, postcodes and
-  // coordinate tails never reach the card — see place-info.js for the rules.
+  function addMarkersForPlaces() {
+    clearMarkers();
+    if (!mapLibrary || !mapReady || !map) return;
+    for (const place of places) {
+      const meta = CATEGORY_META[place.category] || CATEGORY_META.other;
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = `city-map-place-marker category-${place.category}`;
+      element.title = `${place.name} — ${meta.label}`;
+      element.setAttribute("aria-label", `${place.name}. ${meta.label}`);
+      const icon = document.createElement("span");
+      icon.className = "city-map-place-marker-icon";
+      icon.textContent = meta.icon;
+      element.appendChild(icon);
+
+      const marker = new mapLibrary.Marker({ element, anchor: "bottom" })
+        .setLngLat([place.lon, place.lat])
+        .addTo(map);
+      markers.push({ place, marker, element });
+
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        showPlaceDetails(place);
+      });
+    }
+    updateMarkerSelectionClasses();
+  }
+
+  function clearMarkers() {
+    for (const entry of markers) entry.marker.remove();
+    markers = [];
+  }
+
+  function buildFallbackAttractionList(city) {
+    fallbackAttractions = buildFallbackAttractions(city);
+    const old = document.getElementById("city-explorer-catalog-fallback");
+    if (old) old.remove();
+    if (!fallbackAttractions.length) return;
+
+    const section = document.createElement("section");
+    section.id = "city-explorer-catalog-fallback";
+    section.className = "city-explorer-catalog-fallback";
+    const heading = document.createElement("strong");
+    heading.textContent = "Достопримечательности из каталога WAY●MARK";
+    const hint = document.createElement("p");
+    hint.textContent = "Эти места описаны в профиле города, но в картографических данных пока не нашлось их координат.";
+    const list = document.createElement("ul");
+    for (const place of fallbackAttractions) {
+      const item = document.createElement("li");
+      item.textContent = place.description ? `${place.name} — ${place.description}` : place.name;
+      list.appendChild(item);
+    }
+    section.append(heading, hint, list);
+    routePanel.appendChild(section);
+  }
+
+  function cityPlacesQuery(city) {
+    const lat = Number(city.lat).toFixed(6);
+    const lon = Number(city.lon).toFixed(6);
+    const radius = DEFAULT_RADIUS_METERS;
+    return `[out:json][timeout:20];\n(\n  nwr(around:${radius},${lat},${lon})[tourism~"attraction|museum|viewpoint|gallery|artwork|zoo|aquarium|theme_park"];\n  nwr(around:${radius},${lat},${lon})[historic];\n  nwr(around:${radius},${lat},${lon})[leisure~"park|garden|nature_reserve"];\n  nwr(around:${radius},${lat},${lon})[amenity~"theatre|arts_centre|planetarium|place_of_worship"];\n  nwr(around:${radius},${lat},${lon})[amenity~"restaurant|cafe|fast_food|food_court"];\n  nwr(around:${radius},${lat},${lon})[tourism~"hotel|hostel|guest_house"];\n  nwr(around:${radius},${lat},${lon})[public_transport=station];\n  nwr(around:${radius},${lat},${lon})[railway~"station|subway_entrance"];\n);\nout center tags 700 qt;`;
+  }
+
+  async function fetchPlacesFromOverpass(city, requestId) {
+    const query = cityPlacesQuery(city);
+    let lastError = null;
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 23000);
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`Overpass HTTP ${response.status}`);
+        const payload = await response.json();
+        if (requestId !== requestSequence || activeCity?.id !== city.id) return;
+        const center = { lat: city.lat, lon: city.lon };
+        const ranked = normalizeOverpassPlaces(payload).map((place) => ({
+          ...place,
+          distanceMeters: distanceApproxMeters(place, center)
+        }));
+        places = choosePlacesForMap(ranked);
+        if (!places.length) {
+          setStatus("Для этого района пока не нашлись подписанные места.");
+          buildFallbackAttractionList(city);
+        } else {
+          const old = document.getElementById("city-explorer-catalog-fallback");
+          if (old) old.remove();
+          setStatus(`${places.length} мест на карте · OpenStreetMap`);
+        }
+        addMarkersForPlaces();
+        renderRouteStops();
+        refreshAboutModalIfOpen();
+        return;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    if (requestId !== requestSequence || activeCity?.id !== city.id) return;
+    places = [];
+    setStatus("Не удалось загрузить места — карта работает отдельно от каталога.");
+    buildFallbackAttractionList(city);
+    addMarkersForPlaces();
+    renderRouteStops();
+    refreshAboutModalIfOpen();
+    console.warn("WAY●MARK: place data request failed for city explorer.", lastError);
+  }
+
+  /* ----------------------------------------------------------- place card */
+
   function addressForPlace(place) {
     const tags = place?.tags || {};
     return composeAddress({
@@ -400,7 +724,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
         reverseGeocodeCache.set(cacheKey, address);
         return address;
       } catch (error) {
-        // The map must remain usable when a public geocoder is unavailable.
         return null;
       } finally {
         window.clearTimeout(timeout);
@@ -413,8 +736,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
   function renderPlaceAddress(address) {
     placeDetailsMeta.replaceChildren();
     const hasAddress = Boolean(address?.text) && Boolean(address?.hasDetail);
-    // No empty "Адрес" block and no gap above the buttons when the map data has
-    // only a country and a city.
     placeDetailsMeta.classList.toggle("hidden", !hasAddress);
     if (!hasAddress) return;
     const row = document.createElement("div");
@@ -428,15 +749,76 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     placeDetailsMeta.appendChild(row);
   }
 
-  function updatePlaceRouteButton() {
-    const inRoute = Boolean(currentPlace?.id) && routeStops.some((item) => item.id === currentPlace.id);
-    if (!placeDetailsAddButton) return;
-    placeDetailsAddButton.disabled = inRoute;
-    placeDetailsAddButton.textContent = inRoute ? "Уже в маршруте ✓" : "Добавить в маршрут";
+  // A curated note from the city catalogue, matched by name, is the only extra
+  // "source" available offline. It is shown as short information, never invented.
+  function catalogNoteFor(place) {
+    const list = Array.isArray(activeCity?.attractions) ? activeCity.attractions : [];
+    const name = String(place?.name || "").toLocaleLowerCase("ru-RU").trim();
+    if (name.length < 3) return "";
+    const match = list.find((item) => {
+      const title = String(item?.[0] || "").toLocaleLowerCase("ru-RU").trim();
+      return title.length >= 3 && (name === title || name.includes(title) || title.includes(name));
+    });
+    return cleanPlaceDescription(match?.[1] || "");
+  }
+
+  // Short, practical facts only: catalogue note, opening hours, phone, website, price.
+  function placeInfoRows(place) {
+    const tags = place?.tags || {};
+    const rows = [];
+    const push = (label, value) => {
+      const text = cleanPlaceDescription(value);
+      if (text) rows.push({ label, text });
+    };
+    const note = catalogNoteFor(place);
+    if (note) rows.push({ label: "О месте", text: note });
+    push("Часы работы", tags.opening_hours);
+    push("Телефон", tags.phone || tags["contact:phone"]);
+    push("Сайт", tags.website || tags["contact:website"] || place?.website);
+    if (/^(yes|no)$/i.test(String(tags.fee || ""))) {
+      rows.push({ label: "Вход", text: tags.fee.toLowerCase() === "yes" ? "Платный" : "Бесплатный" });
+    } else {
+      push("Вход", tags.charge);
+    }
+    push("Построено", tags.start_date);
+    return rows.slice(0, 4);
+  }
+
+  function renderPlaceInfo(place) {
+    const rows = placeInfoRows(place);
+    placeDetailsInfo.classList.toggle("hidden", rows.length === 0);
+    placeDetailsInfoRows.replaceChildren();
+    for (const row of rows) {
+      const line = document.createElement("div");
+      line.className = "city-place-info-row";
+      const label = document.createElement("span");
+      label.textContent = row.label;
+      const value = document.createElement("strong");
+      if (row.label === "Сайт") {
+        const href = /^https?:\/\//i.test(row.text) ? row.text : `https://${row.text}`;
+        const link = document.createElement("a");
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = row.text.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+        value.appendChild(link);
+      } else {
+        value.textContent = row.text;
+      }
+      line.append(label, value);
+      placeDetailsInfoRows.appendChild(line);
+    }
+  }
+
+  function updateCardButtons() {
+    const inRoute = isInRoute(currentPlace);
+    placeDetailsAddButton.disabled = !currentPlace || inRoute;
+    placeDetailsAddButton.textContent = inRoute ? "В маршруте ✓" : "Добавить в маршрут";
+    placeDetailsResetButton.disabled = routeStops.length === 0;
   }
 
   function showPlaceDetails(place, extra = {}) {
-    // This iteration is intentionally desktop-only; leave the existing mobile UI untouched.
+    // Desktop iteration: the mobile card layer stays as it was.
     if (!place || document.documentElement.dataset.device !== "desktop") return;
     selectedPlaceRequestId += 1;
     const requestId = selectedPlaceRequestId;
@@ -448,19 +830,36 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     placeDetailsDescription.textContent = description;
     placeDetailsDescription.classList.toggle("hidden", !description);
     renderPlaceAddress(addressForPlace(place));
+    renderPlaceInfo(place);
     placeDetailsPanel.classList.remove("hidden");
     placeDetailsPanel.classList.add("visible");
-    placeDetailsRouteButton.dataset.placeName = place.name || "";
-    updatePlaceRouteButton();
+    updateCardButtons();
 
-    // If the map object has no street or district, ask the public reverse geocoder
-    // for the clicked coordinates. Country + city alone is not shown as an address.
     if (!hasStreetLevelData(place) && Number.isFinite(place.lat) && Number.isFinite(place.lon)) {
       reverseGeocodeAddress(place).then((resolvedAddress) => {
         if (requestId !== selectedPlaceRequestId || placeDetailsPanel.classList.contains("hidden")) return;
         if (resolvedAddress?.hasDetail) renderPlaceAddress(resolvedAddress);
       });
     }
+  }
+
+  function hidePlaceDetails() {
+    currentPlace = null;
+    placeDetailsPanel.classList.add("hidden");
+    placeDetailsPanel.classList.remove("visible");
+  }
+
+  /* ------------------------------------------------------------- map click */
+
+  function categoryFromVectorProperties(properties = {}, sourceLayer = "") {
+    const value = String(properties.class || properties.type || properties.subclass || sourceLayer).toLowerCase();
+    if (/restaurant|cafe|food|fast_food/.test(value)) return "restaurant";
+    if (/hotel|lodging/.test(value)) return "hotel";
+    if (/park|garden|green/.test(value)) return "park";
+    if (/museum|gallery/.test(value)) return "museum";
+    if (/attraction|historic|tourism|monument/.test(value)) return "attraction";
+    if (/station|transport|railway/.test(value)) return "transport";
+    return "other";
   }
 
   function categoryLabelRu(properties = {}, category = "other", isBuilding = false) {
@@ -487,12 +886,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     return CATEGORY_META[category]?.label || "Место";
   }
 
-  function hidePlaceDetails() {
-    currentPlace = null;
-    placeDetailsPanel.classList.add("hidden");
-    placeDetailsPanel.classList.remove("visible");
-  }
-
   function handleVectorFeatureClick(event) {
     if (!map || !mapReady || !event?.point) return;
     // A click starts a new selection. Empty map clicks close the previous place
@@ -501,9 +894,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     selectedPlaceRequestId += 1;
 
     const features = map.queryRenderedFeatures(event.point) || [];
-    // Only recognisable objects open a card. Basemap labels (city and country
-    // names), road names, water bodies, boundaries and road shields with a numeric
-    // ref are rejected, so a click on an empty-looking area never creates a card.
     const feature = features.find((item) => {
       const layer = map.getLayer(item.layer?.id);
       const sourceLayer = String(item.sourceLayer || layer?.["source-layer"] || "");
@@ -523,7 +913,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       id: `vector-${feature.source || "map"}-${feature.id ?? `${event.lngLat.lng.toFixed(5)}-${event.lngLat.lat.toFixed(5)}`}`,
       name,
       category,
-      // Real description tags only; no templated sentences.
       description: descriptionFromProperties(props),
       address: "",
       tags: props,
@@ -533,155 +922,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     showPlaceDetails(place, { categoryLabel: categoryLabelRu(props, category, isBuilding) });
   }
 
-  function categoryFromVectorProperties(properties = {}, sourceLayer = "") {
-    const value = String(properties.class || properties.type || properties.subclass || sourceLayer).toLowerCase();
-    if (/restaurant|cafe|food|fast_food/.test(value)) return "restaurant";
-    if (/hotel|lodging/.test(value)) return "hotel";
-    if (/park|garden|green/.test(value)) return "park";
-    if (/museum|gallery/.test(value)) return "museum";
-    if (/attraction|historic|tourism|monument/.test(value)) return "attraction";
-    if (/station|transport|railway/.test(value)) return "transport";
-    return "other";
-  }
-
-  function addMarkersForPlaces() {
-    clearMarkers();
-    if (!mapLibrary || !mapReady || !map) return;
-    for (const place of places) {
-      const meta = CATEGORY_META[place.category] || CATEGORY_META.other;
-      const element = document.createElement("button");
-      element.type = "button";
-      element.className = `city-map-place-marker category-${place.category}`;
-      element.title = `${place.name} — ${meta.label}`;
-      element.setAttribute("aria-label", `${place.name}. ${meta.label}`);
-      const icon = document.createElement("span");
-      icon.className = "city-map-place-marker-icon";
-      icon.textContent = meta.icon;
-      element.appendChild(icon);
-
-      const marker = new mapLibrary.Marker({ element, anchor: "bottom" })
-        .setLngLat([place.lon, place.lat])
-        .addTo(map);
-      const markerEntry = { place, marker, element };
-      markers.push(markerEntry);
-
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        showPlaceDetails(place);
-      });
-    }
-    applyPlaceFilter();
-    updateMarkerSelectionClasses();
-  }
-
-  function clearMarkers() {
-    for (const entry of markers) entry.marker.remove();
-    markers = [];
-  }
-
-  function applyPlaceFilter() {
-    const definition = FILTER_DEFINITIONS[currentFilter] || FILTER_DEFINITIONS.all;
-    for (const entry of markers) {
-      const place = entry.place;
-      const haystack = [place.name, CATEGORY_META[place.category]?.label, place.address, place.description, place.tags?.brand, place.tags?.operator]
-        .filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
-      const textMatches = !searchQuery || haystack.includes(searchQuery);
-      const categoryMatches = !definition.categories || definition.categories.has(place.category);
-      entry.element.style.display = textMatches && categoryMatches ? "flex" : "none";
-    }
-    document.querySelectorAll("[data-place-filter]").forEach((button) => {
-      const selected = button.dataset.placeFilter === currentFilter;
-      button.classList.toggle("active", selected);
-      button.setAttribute("aria-pressed", String(selected));
-    });
-    const visibleCount = markers.filter((entry) => entry.element.style.display !== "none").length;
-    if (places.length) {
-      setStatus(`${visibleCount} мест на карте · данные OpenStreetMap`);
-    }
-  }
-
-  function buildFallbackAttractionList(city) {
-    fallbackAttractions = buildFallbackAttractions(city);
-    const old = document.getElementById("city-explorer-catalog-fallback");
-    if (old) old.remove();
-    if (!fallbackAttractions.length) return;
-
-    const section = document.createElement("section");
-    section.id = "city-explorer-catalog-fallback";
-    section.className = "city-explorer-catalog-fallback";
-    const heading = document.createElement("strong");
-    heading.textContent = "Достопримечательности из каталога WAY●MARK";
-    const hint = document.createElement("p");
-    hint.textContent = "Эти места уже описаны в профиле города, но в картографических данных пока не удалось найти их координаты.";
-    const list = document.createElement("ul");
-    for (const place of fallbackAttractions) {
-      const item = document.createElement("li");
-      item.textContent = place.description ? `${place.name} — ${place.description}` : place.name;
-      list.appendChild(item);
-    }
-    section.append(heading, hint, list);
-    routeStopsElement.parentElement.appendChild(section);
-  }
-
-  function cityPlacesQuery(city) {
-    const lat = Number(city.lat).toFixed(6);
-    const lon = Number(city.lon).toFixed(6);
-    const radius = DEFAULT_RADIUS_METERS;
-    return `[out:json][timeout:20];\n(\n  nwr(around:${radius},${lat},${lon})[tourism~"attraction|museum|viewpoint|hotel|gallery|artwork"];\n  nwr(around:${radius},${lat},${lon})[historic];\n  nwr(around:${radius},${lat},${lon})[leisure~"park|garden"];\n  nwr(around:${radius},${lat},${lon})[amenity~"restaurant|cafe|fast_food|food_court"];\n  nwr(around:${radius},${lat},${lon})[public_transport=station];\n  nwr(around:${radius},${lat},${lon})[railway~"station|subway_entrance"];\n);\nout center tags 600 qt;`;
-  }
-
-  async function fetchPlacesFromOverpass(city, requestId) {
-    const query = cityPlacesQuery(city);
-    let lastError = null;
-    for (const endpoint of OVERPASS_ENDPOINTS) {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 23000);
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          mode: "cors",
-          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-          body: `data=${encodeURIComponent(query)}`,
-          signal: controller.signal
-        });
-        if (!response.ok) throw new Error(`Overpass HTTP ${response.status}`);
-        const payload = await response.json();
-        if (requestId !== requestSequence || activeCity?.id !== city.id) return;
-        const center = { lat: city.lat, lon: city.lon };
-        const ranked = normalizeOverpassPlaces(payload).map((place) => ({
-          ...place,
-          distanceMeters: distanceApproxMeters(place, center)
-        }));
-        places = choosePlacesForMap(ranked);
-        if (!places.length) {
-          setStatus("Для этого района пока не нашлись подписанные места.");
-          setFallbackMessage("Карта открыта. Попробуйте приблизить район или вернуться позже: данные мест предоставляются OpenStreetMap.");
-          buildFallbackAttractionList(city);
-        } else {
-          setFallbackMessage("", false);
-          const old = document.getElementById("city-explorer-catalog-fallback");
-          if (old) old.remove();
-          setStatus(`Найдено ${places.length} мест поблизости · OpenStreetMap`);
-        }
-        addMarkersForPlaces();
-        renderRouteStops();
-        return;
-      } catch (error) {
-        lastError = error;
-      } finally {
-        window.clearTimeout(timeout);
-      }
-    }
-
-    if (requestId !== requestSequence || activeCity?.id !== city.id) return;
-    places = [];
-    setStatus("Не удалось загрузить места — карта может работать отдельно от каталога.");
-    setFallbackMessage("Не удалось получить сведения о местах из OpenStreetMap. Проверьте подключение и попробуйте открыть город ещё раз.");
-    buildFallbackAttractionList(city);
-    addMarkersForPlaces();
-    renderRouteStops();
-    console.warn("WAY●MARK: place data request failed for city explorer.", lastError);
-  }
+  /* ------------------------------------------------------------ map setup */
 
   function setViewMode(mode, { animate = true } = {}) {
     if (!map || !mapReady) return;
@@ -706,13 +947,12 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       button.setAttribute("aria-pressed", String(selected));
     });
 
-    const camera = {
+    map.easeTo({
       pitch: is3d ? 52 : 0,
       bearing: is3d ? (map.getBearing() || -18) : 0,
       duration: animate ? 650 : 0,
       essential: true
-    };
-    map.easeTo(camera);
+    });
   }
 
   function add3DBuildingsLayer() {
@@ -726,9 +966,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       layer.source && map.getSource(layer.source)
     );
 
-    // OpenFreeMap's standard vector schema uses the "building" source-layer.
-    // Prefer the exact source discovered in the active style; otherwise use
-    // the common OpenMapTiles source only when it is actually present.
     const sourceId = buildingLayer?.source || (map.getSource("openmaptiles") ? "openmaptiles" : null);
     const sourceLayer = buildingLayer?.["source-layer"] || (sourceId ? "building" : null);
     if (!sourceId || !sourceLayer) {
@@ -770,9 +1007,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
         [city.lon - longitudeDelta, city.lat - latitudeDelta],
         [city.lon + longitudeDelta, city.lat + latitudeDelta]
       ];
-      // Keep the camera within a generous city-sized area so users cannot drift
-      // far away from the city being explored. This is a fallback radius because
-      // the current city catalogue stores centers, not official city boundaries.
       map.setMaxBounds(bounds);
       const camera = map.cameraForBounds(bounds, {
         padding: { top: 90, right: 38, bottom: 70, left: 38 },
@@ -780,11 +1014,8 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
         bearing: 0
       });
       if (Number.isFinite(camera?.zoom)) {
-        // The city catalog currently stores a center, not official city borders.
-        // Use a generous overview window around the center as a safe fallback.
         const minZoom = Math.max(3, Math.min(11.5, camera.zoom - 0.25));
         map.setMinZoom(minZoom);
-        minZoomCityId = city.id || `${city.lat},${city.lon}`;
       }
     } catch (error) {
       console.warn("WAY●MARK: could not calculate city overview zoom.", error);
@@ -814,7 +1045,10 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       map.addControl(new library.NavigationControl({ showCompass: false, visualizePitch: false }), "bottom-right");
       map.addControl(new library.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-right");
       map.on("resize", () => {
-        if (mapReady && isOpen && activeCity) updateCityMinimumZoom(activeCity);
+        if (mapReady && isOpen && activeCity) {
+          updateCityMinimumZoom(activeCity);
+          layoutRoutePanel();
+        }
       });
 
       map.once("load", () => {
@@ -842,13 +1076,11 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
           setStatus("Загрузка векторной карты продолжается…");
         }
       });
-      // Clickable vector features (including building footprints/extrusions) work in both 2D and 3D.
       map.on("click", handleVectorFeatureClick);
+      map.on("moveend", updateRouteReturnButton);
       map.on("mousemove", (event) => {
         if (!mapReady) return;
         const features = map.queryRenderedFeatures(event.point) || [];
-        // The cursor mirrors the click rule: only objects that can actually open
-        // a card look clickable.
         const clickable = features.some((feature) => {
           const layer = map.getLayer(feature.layer?.id);
           const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
@@ -870,6 +1102,206 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     return mapInitializationPromise;
   }
 
+  /* ----------------------------------------------------------- about modal */
+
+  function routeCandidates(theme) {
+    return places
+      .filter((place) => ROUTABLE_CATEGORIES.has(place.category) && theme.categories.includes(place.category))
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  }
+
+  function orderByWalk(list, start) {
+    const remaining = list.slice();
+    const ordered = [];
+    let current = { lat: start.lat, lon: start.lon };
+    while (remaining.length) {
+      remaining.sort((a, b) => distanceApproxMeters(a, current) - distanceApproxMeters(b, current));
+      const next = remaining.shift();
+      ordered.push(next);
+      current = next;
+    }
+    return ordered;
+  }
+
+  function buildThemeRoute(themeId) {
+    const theme = ROUTE_THEMES.find((item) => item.id === themeId);
+    if (!theme) return;
+    const pool = routeCandidates(theme);
+    if (!pool.length) {
+      onToast("Для этой темы пока нет мест. Выберите другую.");
+      return;
+    }
+    const limit = Math.min(5, maxRouteStops);
+    const picks = pool.slice(0, limit);
+    routeStops = orderByWalk(picks, activeCity);
+    renderRouteStops();
+    closeAboutModal();
+    fitRoute({ duration: 850 });
+    onToast(`Маршрут «${theme.title}» готов: ${routeStops.length} мест`);
+  }
+
+  function renderAboutContent() {
+    if (!activeCity) return;
+    const city = activeCity;
+    const stats = [
+      ["Погода", `${city.weather?.temp ?? "—"}°C · ${city.weather?.condition || "—"}`],
+      ["Климат", city.climate],
+      ["Лучшее время", city.bestTime],
+      ["Кухня", city.cuisine],
+      ["Язык", city.language],
+      ["Валюта", city.currency],
+      ["Местное время", formatLocalTime(city)]
+    ];
+    const popular = (Array.isArray(city.attractions) ? city.attractions : []).slice(0, 6);
+    const popularMarkup = popular.length
+      ? popular.map(([name, note]) => `
+          <div class="city-popular-item">
+            <strong>${escapeHtml(name)}</strong>
+            ${note ? `<span>${escapeHtml(note)}</span>` : ""}
+          </div>`).join("")
+      : `<div class="city-popular-empty">Список популярных мест пока пуст.</div>`;
+
+    const themeMarkup = ROUTE_THEMES.map((theme) => `
+      <button type="button" class="city-theme" data-theme="${theme.id}">
+        <span class="city-theme-icon" aria-hidden="true">${theme.icon}</span>
+        <span class="city-theme-title">${theme.title}</span>
+        <span class="city-theme-caption">${theme.caption}</span>
+      </button>`).join("");
+
+    const routableCount = places.filter((place) => ROUTABLE_CATEGORIES.has(place.category)).length;
+
+    aboutContent.innerHTML = `
+      <div class="city-about-hero">
+        <div class="city-about-lead">
+          <div class="city-about-name">${escapeHtml(city.name)} <span class="city-about-flag">${escapeHtml(city.flag || "")}</span></div>
+          <p class="city-about-description">${escapeHtml(city.description || "Краткое описание города появится позже.")}</p>
+        </div>
+        <div class="city-about-stats">
+          ${stats.map(([label, value]) => `<div class="city-about-stat"><span>${label}</span><strong>${escapeHtml(value || "—")}</strong></div>`).join("")}
+        </div>
+      </div>
+      <div class="city-about-columns">
+        <section class="city-about-popular">
+          <h3>Популярные места</h3>
+          <div class="city-popular-list">${popularMarkup}</div>
+        </section>
+        <section class="city-about-routes">
+          <h3>Маршрут по интересам</h3>
+          <p class="city-about-hint">Выберите тему — соберём маршрут по интересным местам города.</p>
+          <div class="city-theme-grid">${themeMarkup}</div>
+          <button id="city-theme-build" class="city-theme-build" type="button" disabled>Составить маршрут</button>
+          <p class="city-about-note">${routableCount ? `Доступно мест для маршрута: ${routableCount}` : "Места ещё загружаются — кнопка станет активной через несколько секунд."}</p>
+        </section>
+      </div>
+    `;
+
+    selectedThemeId = null;
+    aboutContent.querySelectorAll("[data-theme]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedThemeId = button.dataset.theme;
+        aboutContent.querySelectorAll("[data-theme]").forEach((other) => {
+          other.classList.toggle("active", other === button);
+        });
+        const buildButton = document.getElementById("city-theme-build");
+        if (buildButton) buildButton.disabled = false;
+      });
+    });
+    const buildButton = document.getElementById("city-theme-build");
+    if (buildButton) {
+      buildButton.addEventListener("click", () => {
+        if (selectedThemeId) buildThemeRoute(selectedThemeId);
+      });
+    }
+  }
+
+  function refreshAboutModalIfOpen() {
+    if (aboutModal.classList.contains("hidden")) return;
+    const hadTheme = selectedThemeId;
+    renderAboutContent();
+    if (hadTheme) {
+      const button = aboutContent.querySelector(`[data-theme="${hadTheme}"]`);
+      if (button) {
+        selectedThemeId = hadTheme;
+        button.classList.add("active");
+        const buildButton = document.getElementById("city-theme-build");
+        if (buildButton) buildButton.disabled = false;
+      }
+    }
+  }
+
+  function openAboutModal() {
+    if (!activeCity) return;
+    aboutTitle.textContent = activeCity.name;
+    renderAboutContent();
+    aboutModal.classList.remove("hidden");
+  }
+
+  function closeAboutModal() {
+    aboutModal.classList.add("hidden");
+  }
+
+  function openRoutesModal() {
+    renderSavedRoutes();
+    routesModal.classList.remove("hidden");
+  }
+
+  function closeRoutesModal() {
+    routesModal.classList.add("hidden");
+  }
+
+  /* ---------------------------------------------------------------- search */
+
+  function hideSearchResults() {
+    searchResults.classList.add("hidden");
+    searchResults.replaceChildren();
+  }
+
+  function renderSearchResults(query) {
+    const normalized = String(query || "").trim().toLocaleLowerCase("ru-RU");
+    if (!normalized) {
+      hideSearchResults();
+      return;
+    }
+    const matches = places
+      .filter((place) => {
+        const haystack = [place.name, place.address, CATEGORY_META[place.category]?.label]
+          .filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
+        return haystack.includes(normalized);
+      })
+      .slice(0, 8);
+
+    if (!matches.length) {
+      searchResults.innerHTML = `<div class="city-search-empty">Ничего не найдено. Попробуйте другое название.</div>`;
+      searchResults.classList.remove("hidden");
+      return;
+    }
+
+    searchResults.innerHTML = matches.map((place) => `
+      <button type="button" class="city-search-result" data-place-id="${escapeHtml(place.id)}">
+        <span class="city-search-result-icon" aria-hidden="true">${CATEGORY_META[place.category]?.icon || "📍"}</span>
+        <span class="city-search-result-main">
+          <strong>${escapeHtml(place.name)}</strong>
+          <span>${escapeHtml(CATEGORY_META[place.category]?.label || "Место")}</span>
+        </span>
+      </button>
+    `).join("");
+    searchResults.classList.remove("hidden");
+
+    searchResults.querySelectorAll("[data-place-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const place = places.find((item) => item.id === button.dataset.placeId);
+        if (!place) return;
+        hideSearchResults();
+        showPlaceDetails(place);
+        if (mapReady && map) {
+          map.flyTo({ center: [place.lon, place.lat], zoom: Math.max(map.getZoom(), 15), duration: 550, essential: true });
+        }
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------- open/close */
+
   async function open(city) {
     if (!city || !Number.isFinite(city.lat) || !Number.isFinite(city.lon)) {
       onToast("У этого города нет корректных координат для карты.");
@@ -877,12 +1309,16 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     }
     activeCity = city;
     hidePlaceDetails();
+    hideSearchResults();
+    closeAboutModal();
+    closeRoutesModal();
+    routeStops = [];
     isOpen = true;
     requestSequence += 1;
-    currentFilter = "all";
     places = [];
-    routeStops = [];
-    setFallbackMessage("", false);
+    selectedThemeId = null;
+    searchInput.value = "";
+    setFallbackMessage("");
     const oldFallback = document.getElementById("city-explorer-catalog-fallback");
     if (oldFallback) oldFallback.remove();
     renderRouteStops();
@@ -891,6 +1327,7 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     root.classList.remove("hidden");
     document.body.classList.add("city-explorer-open");
     setStatus("Подключаем карту и загружаем места…");
+    routeReturnButton.classList.add("hidden");
 
     try {
       await ensureMap();
@@ -898,7 +1335,6 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       if (mapReady && map) {
         map.resize();
         updateCityMinimumZoom(city);
-        mapViewMode = "2d";
         setViewMode("2d", { animate: false });
         map.flyTo({ center: [city.lon, city.lat], zoom: Math.max(12.2, map.getMinZoom()), pitch: 0, bearing: 0, duration: 850, essential: true });
         clearMarkers();
@@ -912,16 +1348,30 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
       setFallbackMessage("Профиль города и его достопримечательности остаются в WAY●MARK, но для карты улиц требуется доступ к картографическому сервису.");
       buildFallbackAttractionList(city);
     }
+
+    requestAnimationFrame(layoutRoutePanel);
   }
 
   function close() {
     hidePlaceDetails();
+    hideSearchResults();
+    closeAboutModal();
+    closeRoutesModal();
     isOpen = false;
     requestSequence += 1;
+    // Leaving the city resets the current route; saved routes stay in storage.
+    routeStops = [];
+    renderRouteStops();
+    routeReturnButton.classList.add("hidden");
+    if (mapReady && map && map.getSource("waymark-city-route")) {
+      map.getSource("waymark-city-route").setData(emptyFeatureCollection());
+    }
     root.classList.add("hidden");
     document.body.classList.remove("city-explorer-open");
     if (map) window.setTimeout(() => map.resize(), 100);
   }
+
+  /* --------------------------------------------------------------- wiring */
 
   document.querySelectorAll("[data-map-view]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -930,107 +1380,63 @@ export function createCityExplorer({ onToast = () => {} } = {}) {
     });
   });
 
-  document.querySelectorAll("[data-place-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      currentFilter = button.dataset.placeFilter || "all";
-      applyPlaceFilter();
-    });
-  });
   elementById("city-explorer-back").addEventListener("click", close);
-  const searchButton = document.getElementById("city-place-search-button");
-  const routeBuildButton = document.getElementById("city-route-build-button");
-  const searchInput = document.getElementById("city-place-search");
-  const routeFromInput = document.getElementById("city-route-from");
-  const routeToInput = document.getElementById("city-route-to");
 
-  function selectCityTool(tool, { focus = true } = {}) {
-    const isSearch = tool !== "route";
-    document.querySelectorAll("[data-city-tool]").forEach((button) => {
-      const selected = button.dataset.cityTool === (isSearch ? "search" : "route");
-      button.classList.toggle("active", selected);
-      button.setAttribute("aria-selected", String(selected));
-    });
-    const searchPanel = document.getElementById("city-search-panel");
-    const routePanel = document.getElementById("city-route-panel");
-    searchPanel?.classList.toggle("hidden", !isSearch);
-    routePanel?.classList.toggle("hidden", isSearch);
-    if (searchPanel) searchPanel.hidden = !isSearch;
-    if (routePanel) routePanel.hidden = isSearch;
-    if (!isSearch && focus) routeFromInput?.focus({ preventScroll: true });
-  }
-
-  document.querySelectorAll("[data-city-tool]").forEach((button) => {
-    button.addEventListener("click", () => selectCityTool(button.dataset.cityTool));
-  });
-  selectCityTool("search");
-
-  function runPlaceSearch() {
-    searchQuery = String(searchInput?.value || "").trim().toLocaleLowerCase("ru-RU");
-    applyPlaceFilter();
-    const visible = markers.filter((entry) => entry.element.style.display !== "none");
-    if (!searchQuery) {
-      setStatus(places.length ? `${places.length} мест на карте · OpenStreetMap` : "Введите название места для поиска");
-    } else if (visible.length) {
-      setStatus(`Найдено мест: ${visible.length}`);
-      if (map && visible.length === 1) {
-        map.easeTo({ center: [visible[0].place.lon, visible[0].place.lat], zoom: Math.max(map.getZoom(), 15), duration: 450 });
-      }
-    } else {
-      setStatus("Ничего не найдено в загруженных данных этого города. Попробуйте другое название или категорию.");
-    }
-  }
-  searchButton?.addEventListener("click", runPlaceSearch);
-  searchInput?.addEventListener("input", runPlaceSearch);
-  searchInput?.addEventListener("keydown", (event) => { if (event.key === "Enter") runPlaceSearch(); });
-
-  function findPlaceByInput(value) {
-    const query = String(value || "").trim().toLocaleLowerCase("ru-RU");
-    if (!query) return null;
-    const normalized = (place) => [place.name, place.address, CATEGORY_META[place.category]?.label].filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
-    return places.find((place) => normalized(place) === query) ||
-      places.find((place) => place.name.toLocaleLowerCase("ru-RU").includes(query)) ||
-      places.find((place) => normalized(place).includes(query)) || null;
-  }
-
-  routeBuildButton?.addEventListener("click", () => {
-    if (!mapReady || !map || !mapLibrary) {
-      setStatus("Карта ещё загружается. Попробуйте через пару секунд.");
-      return;
-    }
-    const from = findPlaceByInput(routeFromInput?.value);
-    const to = findPlaceByInput(routeToInput?.value);
-    if (!from || !to) {
-      setStatus("Укажи две точки из загруженных мест города. Можно ввести часть названия.");
-      return;
-    }
-    if (from.id === to.id) {
-      setStatus("Начальная и конечная точки должны отличаться.");
-      return;
-    }
-    // The two-point builder appends to the current route instead of silently
-    // discarding places the user already added from a card.
-    const nextStops = routeStops.slice();
-    for (const place of [from, to]) {
-      if (!nextStops.some((item) => item.id === place.id)) nextStops.push(place);
-    }
-    routeStops = nextStops;
-    renderRouteStops();
-    const bounds = new mapLibrary.LngLatBounds([from.lon, from.lat], [to.lon, to.lat]);
-    map.fitBounds(bounds, { padding: { top: 120, right: 80, bottom: 90, left: 360 }, maxZoom: 15.5, duration: 650 });
-    setStatus(`Маршрут дополнен: ${from.name} → ${to.name}. Точек в маршруте: ${routeStops.length}.`);
-  });
-  clearRouteButton.addEventListener("click", clearRoute);
+  routeResetButton.addEventListener("click", () => clearRoute());
+  routeSaveButton.addEventListener("click", saveCurrentRoute);
+  routeReturnButton.addEventListener("click", () => fitRoute({ duration: 700 }));
   placeDetailsCloseButton.addEventListener("click", hidePlaceDetails);
   placeDetailsAddButton.addEventListener("click", () => {
     if (currentPlace) addPlaceToRoute(currentPlace);
   });
-  placeDetailsRouteButton.addEventListener("click", () => {
-    selectCityTool("route");
-    if (routeToInput) routeToInput.value = placeDetailsTitle.textContent || "";
-    setStatus("Укажи начальную точку, чтобы составить маршрут к выбранному месту.");
+  placeDetailsResetButton.addEventListener("click", () => clearRoute());
+  placeDetailsOriginButton.addEventListener("click", () => {
+    if (currentPlace) placeAsEndpoint(currentPlace, "start");
   });
+  placeDetailsDestinationButton.addEventListener("click", () => {
+    if (currentPlace) placeAsEndpoint(currentPlace, "end");
+  });
+
+  searchInput.addEventListener("input", (event) => renderSearchResults(event.target.value));
+  searchInput.addEventListener("focus", () => {
+    if (searchInput.value.trim()) renderSearchResults(searchInput.value);
+  });
+
+  aboutButton.addEventListener("click", openAboutModal);
+  aboutClose.addEventListener("click", closeAboutModal);
+  aboutModal.addEventListener("click", (event) => {
+    if (event.target === aboutModal) closeAboutModal();
+  });
+
+  routesButton.addEventListener("click", openRoutesModal);
+  routesClose.addEventListener("click", closeRoutesModal);
+  routesModal.addEventListener("click", (event) => {
+    if (event.target === routesModal) closeRoutesModal();
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".city-explorer-search")) hideSearchResults();
+  });
+
+  window.addEventListener("resize", () => {
+    if (isOpen) layoutRoutePanel();
+  });
+
   root.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") close();
+    if (event.key !== "Escape") return;
+    if (!aboutModal.classList.contains("hidden")) {
+      closeAboutModal();
+      return;
+    }
+    if (!routesModal.classList.contains("hidden")) {
+      closeRoutesModal();
+      return;
+    }
+    if (!searchResults.classList.contains("hidden")) {
+      hideSearchResults();
+      return;
+    }
+    close();
   });
 
   return { open, close, get isOpen() { return isOpen; } };

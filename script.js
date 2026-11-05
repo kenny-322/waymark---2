@@ -5,9 +5,9 @@ import { createCountryBoundaryOverlay } from "./country-overlay.js";
 import { createCityExplorer } from "./city-explorer.js";
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.48";
+export const WAYMARK_VERSION = "1.49";
 document.documentElement.dataset.version = WAYMARK_VERSION;
-console.info(`WAY●MARK ${WAYMARK_VERSION} — карточки мест, клики по карте, подписи стран и городов`);
+console.info(`WAY●MARK ${WAYMARK_VERSION} — маршруты по городу, разделы и подписи`);
 
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
@@ -188,6 +188,7 @@ const toast = document.getElementById("toast");
 const modalBackdrop = document.getElementById("modal-backdrop");
 const modalTitle = document.getElementById("modal-title");
 const modalContent = document.getElementById("modal-content");
+const appModal = document.getElementById("app-modal");
 const modalClose = document.getElementById("modal-close");
 const modalBack = document.getElementById("modal-back");
 const navButtons = [...document.querySelectorAll(".nav-button")];
@@ -2185,6 +2186,8 @@ function getGridKeys(rect, cellSize = 120) {
   return keys;
 }
 
+const LABEL_SWITCH_ZOOM = 5.45;
+
 function updateCityLabels() {
   globeGroup.updateMatrixWorld();
 
@@ -2199,7 +2202,10 @@ function updateCityLabels() {
   // the broad overlap that previously showed both label systems together.
   // Cross-fade city and country layers over the exact same zoom interval.
   // This avoids a dead band where neither label layer is visible.
-  const cityLayerFade = 1 - THREE.MathUtils.smoothstep(cameraZ, 5.25, 5.58);
+  // Hard switch between the two label layers: city names are visible only while
+  // the camera is closer than LABEL_SWITCH_ZOOM, country names only after it.
+  // This guarantees that both layers are never visible at the same time.
+  const cityLayerFade = cameraZ < LABEL_SWITCH_ZOOM ? 1 : 0;
   // At very close globe zoom, city labels become visual clutter and disappear.
   // Globe city labels remain available even at maximum globe zoom. The close-zoom
   // label fade belongs to the city-map view, not to this globe overlay.
@@ -2455,7 +2461,7 @@ function openNavigationModal(view) {
     return;
   }
 
-  modalTitle.textContent = view === "favorites" ? "Избранное" : "Моё путешествие";
+  modalTitle.textContent = view === "favorites" ? "Избранное" : "Мои путешествия";
 
   if (view === "trips" && state.savedTrips.length) {
     const tripsMarkup = state.savedTrips.slice().reverse().map((trip) => `
@@ -2494,6 +2500,8 @@ function openNavigationModal(view) {
   }
 
   openModal();
+  // Saved trips use a compact dialog so the page itself never needs to scroll.
+  appModal?.classList.toggle("is-compact", view === "trips");
 
   document.querySelectorAll("[data-saved-trip-id]").forEach((card) => {
     const trip = state.savedTrips.find((item) => item.id === card.dataset.savedTripId);
@@ -2519,6 +2527,8 @@ function setModalBackButton(visible, handler) {
 
 function openModal() {
   setModalBackButton(false);
+  // Every dialog starts at its normal size; only the saved-trips list stays compact.
+  appModal?.classList.remove("is-compact");
   modalBackdrop.classList.remove("hidden");
   state.activeModal = true;
 }
@@ -2526,6 +2536,7 @@ function openModal() {
 function closeModal() {
   setModalBackButton(false);
   state.routeDetailsReturn = null;
+  appModal?.classList.remove("is-compact");
   modalBackdrop.classList.add("hidden");
   state.activeModal = false;
 
@@ -2546,7 +2557,8 @@ function showToast(message) {
 }
 
 const cityExplorerController = createCityExplorer({
-  onToast: (message) => showToast(message)
+  onToast: (message) => showToast(message),
+  findCity: (cityId) => cityById.get(cityId) || null
 });
 
 // Smoothly bring a searched city to the front of the globe at a comfortable mid zoom.
