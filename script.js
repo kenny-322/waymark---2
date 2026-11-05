@@ -53,9 +53,9 @@ applyLanguage();
 startI18nObserver();
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.52";
+export const WAYMARK_VERSION = "1.53";
 document.documentElement.dataset.version = WAYMARK_VERSION;
-console.info(`WAY●MARK ${WAYMARK_VERSION} — настройки, темы, языки и классы мест`);
+console.info(`WAY●MARK ${WAYMARK_VERSION} — тёмная тема, английские названия и контраст`);
 
 // Startup overlay: wait for the first rendered frame and texture loading,
 // with a short fallback so a slow texture host cannot trap the user on it.
@@ -674,12 +674,40 @@ function validateTransportNetwork() {
 validateTransportNetwork();
 
 const normalizeSearchText = (value) => String(value || "").trim().toLocaleLowerCase("ru");
+// Switches city and country names between Russian and English without touching
+// the catalogue file: the English values are stored next to the Russian ones.
+function applyCityLanguage() {
+  const english = getLanguage() === "en";
+  for (const city of CITY_DATA) {
+    if (!city.name_ru) {
+      city.name_ru = city.name;
+      city.country_ru = city.country;
+    }
+    city.name = english && city.name_en ? city.name_en : city.name_ru;
+    city.country = english && city.country_en ? city.country_en : city.country_ru;
+  }
+  for (const item of CITY_SEARCH_INDEX) {
+    item.name = normalizeSearchText(item.city.name);
+    item.country = normalizeSearchText(item.city.country);
+  }
+  for (const entry of cityEntries) {
+    const nameElement = entry.label.querySelector(".city-name");
+    if (nameElement) nameElement.textContent = entry.city.name;
+    entry.labelWidth = Math.max(74, 12 + entry.city.name.length * 7.1);
+    entry.label.title = `${entry.city.name}, ${entry.city.country}`;
+  }
+  if (state.previewCity) showCityCard(state.previewCity);
+  state.labelsDirty = true;
+  state.sceneDirty = true;
+}
 const CITY_SEARCH_INDEX = CITY_DATA.map((city) => ({
   city,
   name: normalizeSearchText(city.name),
   country: normalizeSearchText(city.country),
   id: normalizeSearchText(city.id)
 }));
+
+applyCityLanguage();
 
 function haversineDistanceKm(a, b) {
   const R = 6371;
@@ -3281,6 +3309,7 @@ document.querySelectorAll("[data-lang-choice]").forEach((button) => {
     settings.language = button.dataset.langChoice === "en" ? "en" : "ru";
     persistSettings();
     applyLanguage();
+    applyCityLanguage();
     countryOverlay.refreshLabels?.();
     state.labelsDirty = true;
     state.sceneDirty = true;

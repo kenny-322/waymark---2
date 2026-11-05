@@ -1099,11 +1099,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     const city = activeCity;
     const stats = [
       ["Погода", `${city.weather?.temp ?? "—"}°C · ${city.weather?.condition || "—"}`],
-      ["Климат", city.climate],
       ["Лучшее время", city.bestTime],
       ["Кухня", city.cuisine],
-      ["Язык", city.language],
-      ["Валюта", city.currency],
       ["Местное время", formatLocalTime(city)]
     ];
     const popular = (Array.isArray(city.attractions) ? city.attractions : []).slice(0, 6);
