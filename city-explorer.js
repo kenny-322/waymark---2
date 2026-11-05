@@ -1,4 +1,4 @@
-/* WAY●MARK city explorer, v1.56.
+/* WAY●MARK city explorer, v1.49.
  * Trip-first city exploration: a map with a compact search, a growing route
  * panel and two sections — "О городе" and "Мои маршруты".
  * Place cards use structured map fields only: no house numbers, no postcodes,
@@ -546,10 +546,10 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     }
   }
 
-  // The map is intentionally kept free of decorative POI pins. Places remain
-  // available through search and route planning, but no category icons are
-  // painted over the basemap.
   function addMarkersForPlaces() {
+    // WAY●MARK's own decorative POI pins are intentionally disabled.
+    // Place data remains available in search, cards and route planning.
+    // Native OpenFreeMap / OpenStreetMap symbol layers are not modified.
     clearMarkers();
   }
 
@@ -903,22 +903,22 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     return CATEGORY_META[category]?.label || "Место";
   }
 
-  function isFeatureAtClickLocation(feature, event) {
-    const sourceLayer = String(feature?.sourceLayer || "").toLowerCase();
+  function isPointFeatureWithinSelectionRadius(feature, event) {
     const geometry = feature?.geometry;
-    // Building footprints are genuine selectable areas. POI labels, however,
-    // must be selected near their actual point, not anywhere in a large hit box.
-    if (sourceLayer === "building") return geometry?.type === "Polygon" || geometry?.type === "MultiPolygon";
-    if (geometry?.type !== "Point" || !Array.isArray(geometry.coordinates)) return false;
-    const [lon, lat] = geometry.coordinates;
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
-    const toRad = (value) => value * Math.PI / 180;
-    const dLat = toRad(lat - event.lngLat.lat);
-    const dLon = toRad(lon - event.lngLat.lng);
-    const a = Math.sin(dLat / 2) ** 2
-      + Math.cos(toRad(event.lngLat.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon / 2) ** 2;
-    const distance = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return distance <= 55;
+    if (!geometry || geometry.type !== "Point" || !Array.isArray(geometry.coordinates)) return true;
+    const [x, y] = geometry.coordinates;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+
+    // queryRenderedFeatures returns point geometry in viewport pixel coordinates.
+    // Convert a 55 m ground radius to pixels at the current zoom and latitude.
+    const latitude = Number(event?.lngLat?.lat);
+    const zoom = Number(map?.getZoom?.());
+    if (!Number.isFinite(latitude) || !Number.isFinite(zoom)) return false;
+    const metersPerPixel = 156543.03392 * Math.cos(latitude * Math.PI / 180) / (2 ** zoom);
+    const radiusPx = Math.max(2, Math.min(80, 55 / Math.max(metersPerPixel, 0.01)));
+    const dx = x - event.point.x;
+    const dy = y - event.point.y;
+    return (dx * dx + dy * dy) <= radiusPx * radiusPx;
   }
 
   function handleVectorFeatureClick(event) {
@@ -932,8 +932,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
     const feature = features.find((item) => {
       const layer = map.getLayer(item.layer?.id);
       const sourceLayer = String(item.sourceLayer || layer?.["source-layer"] || "");
-      return isClickableMapFeature(sourceLayer, item.properties || {})
-        && isFeatureAtClickLocation(item, event);
+      return isClickableMapFeature(sourceLayer, item.properties || {}) &&
+        isPointFeatureWithinSelectionRadius(item, event);
     });
     if (!feature) return;
 
@@ -1122,8 +1122,8 @@ export function createCityExplorer({ onToast = () => {}, findCity = () => null }
         const clickable = features.some((feature) => {
           const layer = map.getLayer(feature.layer?.id);
           const sourceLayer = String(feature.sourceLayer || layer?.["source-layer"] || "");
-          return isClickableMapFeature(sourceLayer, feature.properties || {})
-            && isFeatureAtClickLocation(feature, event);
+          return isClickableMapFeature(sourceLayer, feature.properties || {}) &&
+            isPointFeatureWithinSelectionRadius(feature, event);
         });
         map.getCanvas().style.cursor = clickable ? "pointer" : "";
       });

@@ -1,4 +1,4 @@
-/* WAY●MARK — pure helpers for place cards (v1.56).
+/* WAY●MARK — pure helpers for place cards (v1.48).
  * Address composition, real-description filtering and map-click rules.
  * The module has no DOM or MapLibre dependency, so scripts/probe-place-cards.mjs
  * can exercise exactly the same code the site uses.
@@ -170,7 +170,7 @@ export function featureDisplayName(properties = {}) {
   return "";
 }
 
-const CLICKABLE_SOURCE_LAYERS = new Set(["poi", "aerodrome_label", "building"]);
+const CLICKABLE_SOURCE_LAYERS = new Set(["poi", "aerodrome_label", "building", "park"]);
 
 /**
  * A map click may open a card only for a recognisable object. Labels of the

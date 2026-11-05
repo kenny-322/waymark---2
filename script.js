@@ -53,7 +53,7 @@ applyLanguage();
 startI18nObserver();
 
 // Build marker: makes it obvious in the console which version the browser opened.
-export const WAYMARK_VERSION = "1.56";
+export const WAYMARK_VERSION = "1.55";
 document.documentElement.dataset.version = WAYMARK_VERSION;
 console.info(`WAY●MARK ${WAYMARK_VERSION} — офлайн-база мест, маршруты и поиск`);
 
